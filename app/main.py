@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from .utils import get_audio_info, generate_waveform_plot
 from fastapi.responses import StreamingResponse
 import os
+from .utils import get_segments
 
 app = FastAPI(title="Nafas AI")
 
@@ -29,3 +30,30 @@ def get_waveform(filename: str):
     
     image_buffer = generate_waveform_plot(path)
     return StreamingResponse(image_buffer, media_type="image/png")
+
+
+
+
+
+@app.get("/process/{filename}")
+def process_audio(filename: str):
+    # Filenames in Kaggle are like '101_1b1_Al_sc_Meditron.wav'
+    # The annotation is '101_1b1_Al_sc_Meditron.txt'
+    base_name = filename.replace(".wav", "")
+    audio_path = f"data/{filename}"
+    txt_path = f"data/{base_name}.txt"
+    
+    if not os.path.exists(audio_path) or not os.path.exists(txt_path):
+        raise HTTPException(status_code=404, detail="Audio or Annotation file missing")
+    
+    segments, sr = get_segments(audio_path, txt_path)
+    
+    return {
+        "filename": filename,
+        "total_breaths_found": len(segments),
+        "sampling_rate_used": sr,
+        "segments_summary": [
+            {"id": s["id"], "label": s["label"], "samples": len(s["data"])} 
+            for s in segments
+        ]
+    }

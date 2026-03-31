@@ -4,6 +4,9 @@ import librosa
 import librosa.display
 import matplotlib.pyplot as plt
 import io
+import numpy as np
+from scipy.signal import butter, lfilter
+import pandas as pd
 
 def get_audio_info(file_path):
     # Load audio
@@ -44,3 +47,45 @@ def generate_waveform_plot(file_path):
     plt.close() # Free up memory
     
     return buf
+
+
+
+
+
+# 1. The Butterworth "Cleaner"
+def butter_bandpass_filter(data, lowcut=50, highcut=2500, fs=22050, order=5):
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+    b, a = butter(order, [low, high], btype='band')
+    y = lfilter(b, a, data)
+    return y
+
+
+
+
+# 2. The Slicer (Segmentation)
+def get_segments(audio_path, annotation_path):
+    # Load audio at a fixed sample rate (Resampling)
+    y, sr = librosa.load(audio_path, sr=22050)
+    
+    # Clean the audio immediately
+    y_clean = butter_bandpass_filter(y, fs=sr)
+    
+    # Read the .txt file (Start, End, Crackle, Wheeze)
+    # The Kaggle dataset uses space-separated values
+    annotations = pd.read_csv(annotation_path, sep='\t', header=None, 
+                             names=['start', 'end', 'crackle', 'wheeze'])
+    
+    segments = []
+    for i, row in annotations.iterrows():
+        start_sample = int(row['start'] * sr)
+        end_sample = int(row['end'] * sr)
+        segment = y_clean[start_sample:end_sample]
+        segments.append({
+            "id": i,
+            "data": segment,
+            "label": "unhealthy" if (row['crackle'] or row['wheeze']) else "healthy"
+        })
+    
+    return segments, sr
