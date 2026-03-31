@@ -9,10 +9,22 @@ app = FastAPI(title="Nafas AI")
 
 @app.get("/")
 def read_root():
+    """Root endpoint.
+
+    Returns a simple JSON message confirming the API is reachable.
+    """
     return {"message": "Nafas API is running!"}
 
 @app.get("/inspect/{filename}")
 def inspect_audio(filename: str):
+    """Inspect an audio file and return basic audio metadata.
+
+    Args:
+        filename (str): Name of the audio file located under the `data/` folder.
+
+    Returns:
+        dict: metadata returned by `get_audio_info` (sample rate, duration, total samples, device info).
+    """
     # Assuming files are in a folder named 'data'
     path = f"data/{filename}"
     if not os.path.exists(path):
@@ -25,6 +37,10 @@ def inspect_audio(filename: str):
 
 @app.get("/plot/{filename}")
 def get_waveform(filename: str):
+    """Return a PNG waveform image for the given audio file.
+
+    The image is returned as a `StreamingResponse` with media type `image/png`.
+    """
     path = f"data/{filename}"
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -38,6 +54,14 @@ def get_waveform(filename: str):
 
 @app.get("/process/{filename}")
 def process_audio(filename: str):
+    """Process an audio file to return annotated segments or fallback raw segment.
+
+    Workflow:
+    - If a corresponding annotation `.txt` file exists, uses `get_segments` to extract labeled segments.
+    - Otherwise, loads the full audio and returns it as a single 'unknown' segment.
+
+    Returns a JSON summary including filename, annotation status, number of segments, sampling rate, and per-segment sizes.
+    """
     # Filenames in Kaggle are like '101_1b1_Al_sc_Meditron.wav'
     # The annotation is '101_1b1_Al_sc_Meditron.txt'
     base_name = filename.replace(".wav", "")

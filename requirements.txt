@@ -1,10 +1,29 @@
-librosa 
-matplotlib 
-numpy 
-pandas 
-fastapi 
+# Audio loading, resampling, and feature/display utilities
+librosa
+
+# Plotting (waveform generation)
+matplotlib
+
+# Numerical arrays and basic math
+numpy
+
+# Reading annotation files (tabular data)
+pandas
+
+# Web API framework
+fastapi
+
+# Support for multipart form parsing (file uploads) used by FastAPI
 python-multipart
-uvicorn 
-torch 
-torchvision 
+
+# ASGI server to run FastAPI locally or in production
+uvicorn
+
+# PyTorch: used for GPU checks and possible ML models
+torch
+
+# PyTorch vision utilities (optional, included if using torchvision features)
+torchvision
+
+# PyTorch audio utilities (optional)
 torchaudio
