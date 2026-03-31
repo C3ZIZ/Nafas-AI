@@ -3,6 +3,7 @@ from .utils import get_audio_info, generate_waveform_plot
 from fastapi.responses import StreamingResponse
 import os
 from .utils import get_segments
+import librosa
 
 app = FastAPI(title="Nafas AI")
 
@@ -42,14 +43,21 @@ def process_audio(filename: str):
     base_name = filename.replace(".wav", "")
     audio_path = f"data/{filename}"
     txt_path = f"data/{base_name}.txt"
-    
-    if not os.path.exists(audio_path) or not os.path.exists(txt_path):
-        raise HTTPException(status_code=404, detail="Audio or Annotation file missing")
-    
-    segments, sr = get_segments(audio_path, txt_path)
+
+    if not os.path.exists(audio_path):
+        raise HTTPException(status_code=404, detail="Audio file missing")
+
+    if os.path.exists(txt_path):
+        segments, sr = get_segments(audio_path, txt_path)
+        annotation_status = "found"
+    else:
+        y, sr = librosa.load(audio_path, sr=22050)
+        segments = [{"id": 0, "data": y, "label": "unknown"}]
+        annotation_status = "missing"
     
     return {
         "filename": filename,
+        "annotation_status": annotation_status,
         "total_breaths_found": len(segments),
         "sampling_rate_used": sr,
         "segments_summary": [
