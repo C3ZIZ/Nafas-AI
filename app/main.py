@@ -3,13 +3,16 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 import librosa
+import torch
 
 from .utils import (
     get_audio_info,
     generate_waveform_plot,
     get_segments,
     generate_mel_spectrogram,
+    prepare_tensor_for_ai,
 )
+from .model import nafas_model, device
 
 app = FastAPI(title="Nafas AI")
 
@@ -111,3 +114,26 @@ def get_spectrogram(filename: str):
 
     # Return it as an image stream to the browser
     return StreamingResponse(image_buffer, media_type="image/png")
+
+
+@app.get("/predict/{filename}")
+def predict_audio(filename: str):
+    path = _resolve_data_file(filename)
+
+    # Convert audio into the tensor format expected by the CNN.
+    input_tensor = prepare_tensor_for_ai(str(path)).to(device)
+
+    nafas_model.eval()
+    with torch.no_grad():
+        output = nafas_model(input_tensor)
+        prediction_index = torch.argmax(output, dim=1).item()
+
+    classes = {0: "Normal", 1: "Wheeze", 2: "Crackle"}
+    result = classes.get(prediction_index, "Unknown")
+
+    return {
+        "filename": filename,
+        "prediction": result,
+        "raw_model_output": output.detach().cpu().tolist(),
+        "device_used": str(device),
+    }

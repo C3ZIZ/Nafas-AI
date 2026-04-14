@@ -169,3 +169,16 @@ def generate_mel_spectrogram(audio_path):
     plt.close()
     
     return buf
+
+
+def prepare_tensor_for_ai(audio_path):
+    """Convert an audio file into a model-ready mel-spectrogram tensor.
+
+    Returns a tensor with shape [1, 1, 128, time_frames].
+    """
+    y, sr = librosa.load(audio_path, sr=22050)
+    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=2500)
+    S_dB = librosa.power_to_db(S, ref=np.max)
+
+    tensor = torch.tensor(S_dB, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+    return tensor
