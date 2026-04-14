@@ -110,10 +110,15 @@ def get_segments(audio_path, annotation_path):
     # Clean the audio immediately
     y_clean = butter_bandpass_filter(y, fs=sr)
 
-    # Read the .txt file (Start, End, Crackle, Wheeze)
-    # The Kaggle dataset uses space-separated values
-    annotations = pd.read_csv(annotation_path, sep='\t', header=None, 
-                             names=['start', 'end', 'crackle', 'wheeze'])
+    # Read the .txt file (Start, End, Crackle, Wheeze).
+    # ICBHI labels are whitespace-delimited (spaces/tabs depending on export).
+    annotations = pd.read_csv(
+        annotation_path,
+        sep=r'\s+',
+        header=None,
+        names=['start', 'end', 'crackle', 'wheeze'],
+        engine='python',
+    )
 
     segments = []
     for i, row in annotations.iterrows():
@@ -127,3 +132,40 @@ def get_segments(audio_path, annotation_path):
         })
 
     return segments, sr
+
+
+
+
+def generate_mel_spectrogram(audio_path):
+    # 1. Load the audio at our standardized sample rate
+    y, sr = librosa.load(audio_path, sr=22050)
+    
+    # Optional: You could pass 'y' through your Day 2 butter_bandpass_filter here!
+    
+    # 2. Generate the Mel-Spectrogram
+    # n_mels: Number of frequency bands (resolution on the Y axis)
+    # fmax: Max frequency. We set it to 2500Hz because human breath sounds rarely exceed this.
+    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=2500)
+    
+    # 3. Convert power (amplitude) to Decibels (logarithmic scale)
+    # This makes faint sounds more visible and matches human hearing limits.
+    S_dB = librosa.power_to_db(S, ref=np.max)
+    
+    # 4. Create the visual plot in memory
+    plt.switch_backend('Agg')
+    plt.figure(figsize=(10, 4))
+    
+    # Display the spectrogram
+    librosa.display.specshow(S_dB, x_axis='time', y_axis='mel', sr=sr, fmax=2500, cmap='magma')
+    
+    plt.colorbar(format='%+2.0f dB')
+    plt.title(f"Mel-Spectrogram: {audio_path.split('/')[-1]}")
+    plt.tight_layout()
+    
+    # Save to buffer
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    plt.close()
+    
+    return buf
