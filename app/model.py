@@ -17,12 +17,12 @@ class NafasCNN(nn.Module):
         )
 
         self.pool = nn.AdaptiveAvgPool2d((4, 4))
-
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.Linear(32 * 4 * 4, 128),
             nn.ReLU(),
-            nn.Linear(128, 3),
+            nn.Dropout(0.3),
+            nn.Linear(128, 8),
         )
 
     def forward(self, x):

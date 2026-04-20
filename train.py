@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from app.model import nafas_model, device
-from app.dataset import NafasDataset
+from app.dataset import NafasDiseaseDataset
 
 
 def train_local_model():
@@ -23,7 +23,7 @@ def train_local_model():
     # 1. Load Data (Limit to 100 samples)
     # We use batch_size=1 because breath segments vary in time length.
     # The model uses AdaptiveAvgPool2d to handle different spatial sizes.
-    dataset = NafasDataset(data_dir="data", max_samples=250)
+    dataset = NafasDiseaseDataset(data_dir="data", max_samples=250)
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
     # 2. Setup Loss and Optimizer

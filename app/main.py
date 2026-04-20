@@ -4,6 +4,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 import librosa
 import torch
+import torch.nn.functional as F
+import pandas as pd
+import os
 
 from .utils import (
     get_audio_info,
@@ -13,6 +16,18 @@ from .utils import (
     prepare_tensor_for_ai,
 )
 from .model import nafas_model, device
+
+# Reverse mapping to get string names for the 8 diseases
+REVERSE_DISEASE_MAP = {
+    0: "Healthy",
+    1: "COPD",
+    2: "Asthma",
+    3: "Bronchiectasis",
+    4: "Pneumonia",
+    5: "URTI",
+    6: "LRTI",
+    7: "Bronchiolitis",
+}
 
 app = FastAPI(title="Nafas AI")
 
@@ -128,12 +143,62 @@ def predict_audio(filename: str):
         output = nafas_model(input_tensor)
         prediction_index = torch.argmax(output, dim=1).item()
 
-    classes = {0: "Normal", 1: "Wheeze", 2: "Crackle"}
-    result = classes.get(prediction_index, "Unknown")
+    # Map prediction index to disease name using the reverse map
+    result = REVERSE_DISEASE_MAP.get(prediction_index, "Unknown")
 
     return {
         "filename": filename,
         "prediction": result,
         "raw_model_output": output.detach().cpu().tolist(),
         "device_used": str(device),
+    }
+
+
+@app.get("/diagnose/{filename}")
+def full_diagnosis(filename: str):
+    path = _resolve_data_file(filename)
+    txt_path = path.with_suffix(".txt")
+
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # 1. Count Crackles and Wheezes from the annotation file (if present)
+    crackles_count = 0
+    wheezes_count = 0
+    if txt_path.exists():
+        try:
+            annotations = pd.read_csv(str(txt_path), sep=r"\s+", header=None, names=["start", "end", "crackle", "wheeze"], engine="python")
+            crackles_count = int(annotations["crackle"].sum())
+            wheezes_count = int(annotations["wheeze"].sum())
+        except Exception:
+            # If annotation parsing fails, leave counts at zero
+            crackles_count = 0
+            wheezes_count = 0
+
+    # 2. Prepare the audio for the AI
+    input_tensor = prepare_tensor_for_ai(str(path)).to(device)
+
+    # 3. AI Prediction Pipeline
+    nafas_model.eval()
+    with torch.no_grad():
+        raw_output = nafas_model(input_tensor)
+        # Convert raw logits to percentages using softmax
+        probabilities = F.softmax(raw_output, dim=1)[0] * 100
+        top_prob, top_class_idx = torch.max(probabilities, dim=0)
+
+    # 4. Format all confidences nicely
+    all_confidences = {}
+    for idx, prob in enumerate(probabilities):
+        disease_name = REVERSE_DISEASE_MAP.get(idx, str(idx))
+        all_confidences[disease_name] = round(prob.item(), 2)
+
+    return {
+        "filename": filename,
+        "most_likely_disease": REVERSE_DISEASE_MAP.get(top_class_idx.item(), "Unknown"),
+        "confidence_score": f"{round(top_prob.item(), 2)}%",
+        "anomalies_detected": {
+            "total_crackles": crackles_count,
+            "total_wheezes": wheezes_count,
+        },
+        "all_disease_probabilities": all_confidences,
     }
