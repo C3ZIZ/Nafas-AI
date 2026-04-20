@@ -31,7 +31,7 @@ class NafasDataset(Dataset):
         max_samples (int): Maximum number of segments to load (useful for quick tests).
     """
 
-    def __init__(self, data_dir="data", max_samples=100):
+    def __init__(self, data_dir="data", max_samples=250):
         self.samples = []
 
         # Sampling rate (Hz) used for loading and spectrogram creation.
