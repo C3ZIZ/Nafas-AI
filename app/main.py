@@ -9,8 +9,10 @@ import pandas as pd
 import os
 from pydantic import BaseModel
 import numpy as np
+import json
 
 from .clinical_model import rf_model
+from .nlp_model import nlp_model
 
 from .utils import (
     get_audio_info,
@@ -37,6 +39,17 @@ app = FastAPI(title="Nafas AI")
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 AUDIO_DATA_DIR = DATA_DIR / "audio_and_txt_files"
+
+# Load the Knowledge Base created by prepare_nlp.py (if present)
+KB_PATH = DATA_DIR / "knowledge_base.json"
+if KB_PATH.exists():
+    try:
+        with open(KB_PATH, 'r', encoding='utf-8') as _f:
+            knowledge_base = json.load(_f)
+    except Exception:
+        knowledge_base = {}
+else:
+    knowledge_base = {}
 
 
 def _resolve_data_file(filename: str) -> Path:
@@ -259,4 +272,70 @@ def multi_modal_diagnosis(filename: str, vitals: PatientVitals):
             "clinical_model_top_pick": REVERSE_DISEASE_MAP[int(np.argmax(clinical_probs))]
         },
         "all_disease_probabilities": all_confidences
+    }
+
+
+# --- Trinity Endpoint (Audio + Vitals + Subjective History) ---
+class PatientProfile(BaseModel):
+    age: float
+    sex: int          # 1 Male, 0 Female
+    bmi: float
+    spo2: float       # Blood oxygen
+    temperature: float
+    smoker: int       # 1 Yes, 0 No
+    patient_notes: str # The Subjective History text
+
+
+@app.post("/diagnose_trinity/{filename}")
+def diagnose_trinity(filename: str, patient: PatientProfile):
+    audio_path = str(_resolve_data_file(filename))
+    if not os.path.exists(audio_path):
+        raise HTTPException(status_code=404, detail="Audio file not found")
+        
+    if rf_model is None or nlp_model is None:
+        raise HTTPException(status_code=500, detail="Models missing. Run train.py")
+
+    # --- BRAIN 1: AUDIO (CNN) ---
+    input_tensor = prepare_tensor_for_ai(audio_path).to(device)
+    nafas_model.eval()
+    with torch.no_grad():
+        raw_audio = nafas_model(input_tensor)
+        audio_probs = F.softmax(raw_audio, dim=1).cpu().numpy()[0]
+
+    # --- BRAIN 2: VITALS (Random Forest) ---
+    vitals_array = np.array([[patient.age, patient.sex, patient.bmi, 
+                              patient.spo2, patient.temperature, patient.smoker]])
+    vitals_probs = rf_model.predict_proba(vitals_array)[0]
+
+    # --- BRAIN 3: TEXT (NLP) ---
+    nlp_probs = nlp_model.predict_proba([patient.patient_notes])[0]
+
+    # --- THE FUSION CENTER (Soft Voting) ---
+    # We assign weights based on clinical importance
+    # Audio: 40% | Vitals: 30% | NLP (Text): 30%
+    fused_probs = (audio_probs * 0.40) + (vitals_probs * 0.30) + (nlp_probs * 0.30)
+    
+    top_class_idx = int(np.argmax(fused_probs))
+    final_disease = REVERSE_DISEASE_MAP[top_class_idx]
+    confidence = fused_probs[top_class_idx] * 100
+
+    # Fetch Doctor Advice
+    doctor_advice = knowledge_base.get(final_disease, {
+        "description": "Diagnosis confirmed.",
+        "precautions": ["Consult a healthcare provider for a detailed plan."]
+    })
+
+    return {
+        "status": "Success",
+        "final_diagnosis": final_disease,
+        "overall_confidence": f"{round(confidence, 2)}%",
+        "doctor_summary": {
+            "disease_description": doctor_advice.get("description", ""),
+            "recommended_precautions": doctor_advice.get("precautions", [])
+        },
+        "model_breakdown": {
+            "audio_cnn_prediction": REVERSE_DISEASE_MAP[int(np.argmax(audio_probs))],
+            "vitals_rf_prediction": REVERSE_DISEASE_MAP[int(np.argmax(vitals_probs))],
+            "symptoms_nlp_prediction": REVERSE_DISEASE_MAP[int(np.argmax(nlp_probs))]
+        }
     }

@@ -26,3 +26,7 @@ uvicorn app.main:app --reload
 ## Notes
 
 - Place audio files and their `.txt` annotations in the `data/` folder. Annotation files should match the audio filename (e.g., `101_1b1_Al_sc_Meditron.wav` and `101_1b1_Al_sc_Meditron.txt`).
+
+
+# NPL DATA NEW
+https://www.kaggle.com/datasets/itachi9604/disease-symptom-description-dataset

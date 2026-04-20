@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 from app.model import nafas_model, device
 from app.dataset import NafasDiseaseDataset
 from app.clinical_model import train_and_save_rf
+from app.nlp_model import train_nlp
 
 
 def train_local_model():
@@ -84,5 +85,11 @@ if __name__ == "__main__":
         train_and_save_rf()
     except Exception as e:
         print(f"Clinical model training skipped: {e}")
+
+    # Train the lightweight NLP model (creates nlp_weights.pkl)
+    try:
+        train_nlp()
+    except Exception as e:
+        print(f"NLP training skipped: {e}")
 
     train_local_model()
