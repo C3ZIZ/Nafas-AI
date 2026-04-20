@@ -7,6 +7,10 @@ import torch
 import torch.nn.functional as F
 import pandas as pd
 import os
+from pydantic import BaseModel
+import numpy as np
+
+from .clinical_model import rf_model
 
 from .utils import (
     get_audio_info,
@@ -201,4 +205,58 @@ def full_diagnosis(filename: str):
             "total_wheezes": wheezes_count,
         },
         "all_disease_probabilities": all_confidences,
+    }
+
+
+# --- Multi-Modal Fusion Endpoint ---
+class PatientVitals(BaseModel):
+    age: float
+    sex: int          # 1 for Male, 0 for Female
+    bmi: float
+    spo2: float       # e.g., 98.5
+    temperature: float# e.g., 37.1
+    smoker: int       # 1 for Yes, 0 for No
+
+
+@app.post("/diagnose_fusion/{filename}")
+def multi_modal_diagnosis(filename: str, vitals: PatientVitals):
+    audio_path = str(_resolve_data_file(filename))
+    if not os.path.exists(audio_path):
+        raise HTTPException(status_code=404, detail="Audio file not found")
+        
+    if rf_model is None:
+        raise HTTPException(status_code=500, detail="Clinical model not trained. Run train.py first.")
+
+    # --- PIPELINE A: AUDIO (CNN) ---
+    input_tensor = prepare_tensor_for_ai(audio_path).to(device)
+    nafas_model.eval()
+    with torch.no_grad():
+        raw_audio_output = nafas_model(input_tensor)
+        # Get audio probabilities (shape: 1x8)
+        audio_probs = F.softmax(raw_audio_output, dim=1).cpu().numpy()[0]
+
+    # --- PIPELINE B: CLINICAL (Random Forest) ---
+    vitals_array = np.array([[vitals.age, vitals.sex, vitals.bmi, 
+                              vitals.spo2, vitals.temperature, vitals.smoker]])
+    clinical_probs = rf_model.predict_proba(vitals_array)[0]
+
+    # --- THE FUSION CENTER (Soft Voting) ---
+    fused_probs = (audio_probs * 0.6) + (clinical_probs * 0.4)
+    top_class_idx = int(np.argmax(fused_probs))
+    top_prob = fused_probs[top_class_idx] * 100
+
+    all_confidences = {
+        REVERSE_DISEASE_MAP[idx]: round(float(prob * 100), 2)
+        for idx, prob in enumerate(fused_probs)
+    }
+
+    return {
+        "filename": filename,
+        "final_diagnosis": REVERSE_DISEASE_MAP[top_class_idx],
+        "confidence_score": f"{round(top_prob, 2)}%",
+        "breakdown": {
+            "audio_model_top_pick": REVERSE_DISEASE_MAP[int(np.argmax(audio_probs))],
+            "clinical_model_top_pick": REVERSE_DISEASE_MAP[int(np.argmax(clinical_probs))]
+        },
+        "all_disease_probabilities": all_confidences
     }

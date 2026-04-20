@@ -14,6 +14,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from app.model import nafas_model, device
 from app.dataset import NafasDiseaseDataset
+from app.clinical_model import train_and_save_rf
 
 
 def train_local_model():
@@ -77,4 +78,11 @@ def train_local_model():
 
 
 if __name__ == "__main__":
+    # Train the clinical Random Forest first (fast). If data is missing,
+    # print a helpful message and continue to train the audio CNN.
+    try:
+        train_and_save_rf()
+    except Exception as e:
+        print(f"Clinical model training skipped: {e}")
+
     train_local_model()

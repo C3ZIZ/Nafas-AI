@@ -27,3 +27,6 @@ torchvision
 
 # PyTorch audio utilities (optional)
 torchaudio
+
+scikit-learn
+pydantic
