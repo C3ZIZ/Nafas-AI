@@ -1,7 +1,9 @@
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 import librosa
 import torch
 import torch.nn.functional as F
@@ -10,6 +12,8 @@ import os
 from pydantic import BaseModel
 import numpy as np
 import json
+import shutil
+import uuid
 
 from .clinical_model import rf_model
 from .nlp_model import nlp_model
@@ -39,6 +43,21 @@ app = FastAPI(title="Nafas AI")
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 AUDIO_DATA_DIR = DATA_DIR / "audio_and_txt_files"
+
+# Allow the Vue dev server to communicate during development
+_DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_DEV_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Optionally mount a built frontend (frontend/dist) so the API can serve the UI
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _FRONTEND_DIST.exists():
+    app.mount("/frontend", StaticFiles(directory=str(_FRONTEND_DIST), html=True), name="frontend")
 
 # Load the Knowledge Base created by prepare_nlp.py (if present)
 KB_PATH = DATA_DIR / "knowledge_base.json"
@@ -78,6 +97,33 @@ def read_root():
     return {"message": "Nafas API is running!"}
 
 
+@app.post("/upload_audio/")
+async def upload_audio(file: UploadFile = File(...)):
+    """Accept an uploaded audio file from the browser and save it into `data/`.
+
+    The endpoint returns the server-side filename which can be passed to
+    `/diagnose_trinity/{filename}`.
+    """
+    # Basic extension check
+    name = Path(file.filename).name
+    ext = Path(name).suffix.lower()
+    if ext not in [".wav", ".mp3", ".m4a", ".flac"]:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    dest_name = f"{uuid.uuid4().hex}{ext}"
+    dest_path = DATA_DIR / dest_name
+
+    try:
+        with open(dest_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+    finally:
+        await file.close()
+
+    return {"filename": dest_name, "saved_at": str(dest_path)}
+
+
 @app.get("/inspect/{filename}")
 def inspect_audio(filename: str):
     """Inspect an audio file and return basic audio metadata.
@@ -102,6 +148,16 @@ def get_waveform(filename: str):
     path = _resolve_data_file(filename)
     image_buffer = generate_waveform_plot(str(path))
     return StreamingResponse(image_buffer, media_type="image/png")
+
+
+@app.get("/audio/{filename}")
+def serve_audio(filename: str):
+    """Serve raw audio files from the `data/` folder so the frontend can play samples.
+
+    This endpoint resolves allowed data locations and returns a `FileResponse`.
+    """
+    path = _resolve_data_file(filename)
+    return FileResponse(str(path), media_type="audio/wav")
 
 
 @app.get("/process/{filename}")
