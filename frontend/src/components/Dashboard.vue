@@ -191,9 +191,14 @@ const profile = ref({
 
 const tab = ref('sample')
 const sampleFiles = ref([
-  { label: 'Healthy Sample', filename: '101_1b1_Al_sc_Meditron.wav' },
-  { label: 'COPD Sample', filename: '107_2b3_Pr_mc_AKGC417L.wav' },
-  { label: 'Pneumonia Sample', filename: '109_1b1_Pr_sc_Litt3200.wav' }
+  { label: 'Healthy', filename: '102_1b1_Ar_sc_Meditron.wav' },
+  { label: 'COPD', filename: '104_1b1_Al_sc_Litt3200.wav' },
+  { label: 'Asthma', filename: '103_2b2_Ar_mc_LittC2SE.wav' },
+  { label: 'Bronchiectasis', filename: '111_1b2_Tc_sc_Meditron.wav' },
+  { label: 'Pneumonia', filename: '122_2b1_Al_mc_LittC2SE.wav' },
+  { label: 'URTI', filename: '101_1b1_Al_sc_Meditron.wav' },
+  { label: 'LRTI', filename: '108_1b1_Al_sc_Meditron.wav' },
+  { label: 'Bronchiolitis', filename: '149_1b1_Al_sc_Meditron.wav' }
 ])
 
 const selectedSample = ref('')
