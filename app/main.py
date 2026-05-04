@@ -26,7 +26,7 @@ from .utils import (
     prepare_tensor_for_ai,
 )
 from .model import nafas_model, device
-from .medications import get_medications
+from .medications import get_medications, get_all_sources
 from .auto_train import ensure_models_trained
 
 # Reverse mapping to get string names for the 8 diseases
@@ -428,6 +428,12 @@ def medications_for_disease(disease: str):
     Pneumonia, URTI, LRTI, Bronchiolitis.
     """
     return get_medications(disease)
+
+
+@app.get("/sources")
+def list_data_sources():
+    """Return the full registry of data sources (guidelines, formularies, pharmacy listings)."""
+    return {"count": len(get_all_sources()), "sources": get_all_sources()}
 
 
 @app.post("/admin/retrain")
