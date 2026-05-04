@@ -1,34 +1,40 @@
 """Prune and full-retrain script.
 
-Use this when you want to wipe every saved model weight file and retrain
-all three brains on the **full** dataset (no sample cap):
+Wipes every saved model artifact and retrains all four components on the
+**full** dataset (no sample cap):
 
     python prune_and_train.py            # interactive confirmation
     python prune_and_train.py --yes      # non-interactive
-    python prune_and_train.py --keep clinical nlp   # only delete audio weights
+    python prune_and_train.py --keep clinical nlp   # only delete audio + advisor
 
 Trained components:
-    * clinical Random Forest  (full master_clinical_data.csv)
-    * NLP TF-IDF + Naive Bayes (full master_nlp_data.csv)
-    * Audio CNN               (every breath segment found under data/)
+    * clinical  — Random Forest         (full master_clinical_data.csv)
+    * nlp       — TF-IDF + Naive Bayes  (full master_nlp_data.csv)
+    * audio     — Audio CNN             (every breath segment found under data/)
+    * advisor   — Medication-advisor    (TF-IDF over saudi_medications.json,
+                                          plus a schema validation pass on the
+                                          curated dataset itself)
 
-Existing weight files are removed BEFORE training; if training of any
+Existing weight files are removed BEFORE training. If training of any
 component fails, the others still proceed and the script reports a summary
-at the end.
+at the end. Exit code is non-zero iff any component failed OR the
+medication dataset failed schema validation.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 WEIGHTS = {
-    "audio": ROOT / "nafas_weights.pth",
+    "audio":    ROOT / "nafas_weights.pth",
     "clinical": ROOT / "clinical_weights.pkl",
-    "nlp": ROOT / "nlp_weights.pkl",
+    "nlp":      ROOT / "nlp_weights.pkl",
+    "advisor":  ROOT / "advisor_weights.pkl",
 }
 
 # Treat ~unbounded as the "use everything" cap for the audio dataset.
@@ -87,6 +93,54 @@ def train_nlp_full() -> str:
         return "nlp: trained on full dataset"
     except Exception as e:
         return f"nlp: FAILED ({e})"
+
+
+def validate_medication_dataset() -> tuple[str, int]:
+    """Run scripts/validate_medications.py to schema-check the medication dataset.
+
+    Returns (message, exit_code). Non-zero exit code if any schema error was found.
+    """
+    script = ROOT / "scripts" / "validate_medications.py"
+    if not script.exists():
+        return ("medication-dataset: validator not found (scripts/validate_medications.py missing)", 0)
+    try:
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
+        # Print the summary line so the user sees medication count etc.
+        last = (proc.stdout or "").strip().splitlines()[-1:] or [""]
+        msg = f"medication-dataset: {last[0]}" if proc.returncode == 0 \
+              else f"medication-dataset: SCHEMA ERRORS (rc={proc.returncode})"
+        if proc.returncode != 0 and proc.stdout:
+            msg += "\n" + proc.stdout.strip()
+        return (msg, proc.returncode)
+    except Exception as e:
+        return (f"medication-dataset: validator failed to run ({e})", 1)
+
+
+def train_advisor_full() -> str:
+    """Build and persist the Medication Advisor TF-IDF index."""
+    try:
+        cwd = os.getcwd()
+        os.chdir(ROOT)
+        try:
+            from app.medication_advisor import get_advisor
+            info = get_advisor().fit_and_save()
+        finally:
+            os.chdir(cwd)
+        return (
+            f"advisor: trained "
+            f"(terms={info['n_terms']}, descriptors={info['n_descriptors']}, "
+            f"file={Path(info['saved_to']).name})"
+        )
+    except Exception as e:
+        return f"advisor: FAILED ({e})"
 
 
 def train_audio_full(epochs: int = 5) -> str:
@@ -155,10 +209,17 @@ def main() -> int:
 
     targets = args.only or list(WEIGHTS.keys())
 
+    # If --only is set, narrow the prune scope to those components too — so
+    # `--only advisor` doesn't blow away clinical/nlp/audio weights.
+    if args.only:
+        keep = list({k for k in WEIGHTS if k not in args.only} | set(args.keep))
+    else:
+        keep = list(args.keep)
+
     print("=" * 60)
     print("Prune & full retrain")
     print(f"  ROOT         : {ROOT}")
-    print(f"  Will delete  : {[k for k in WEIGHTS if k not in args.keep]}")
+    print(f"  Will delete  : {[k for k in WEIGHTS if k not in keep]}")
     print(f"  Will retrain : {targets}")
     print(f"  Audio epochs : {args.audio_epochs}")
     print("=" * 60)
@@ -167,11 +228,11 @@ def main() -> int:
         print("Aborted.")
         return 1
 
-    print("\n[1/2] Pruning weight files…")
-    for name, msg in prune(args.keep).items():
+    print("\n[1/3] Pruning weight files…")
+    for name, msg in prune(keep).items():
         print(f"  {name:<8} {msg}")
 
-    print("\n[2/2] Training…")
+    print("\n[2/3] Training…")
     summary: dict[str, str] = {}
     if "clinical" in targets:
         summary["clinical"] = train_clinical_full()
@@ -182,6 +243,14 @@ def main() -> int:
     if "audio" in targets:
         summary["audio"] = train_audio_full(epochs=args.audio_epochs)
         print(f"  {summary['audio']}")
+    if "advisor" in targets:
+        summary["advisor"] = train_advisor_full()
+        print(f"  {summary['advisor']}")
+
+    print("\n[3/3] Validating medication dataset…")
+    msg, val_rc = validate_medication_dataset()
+    summary["medication_dataset"] = msg
+    print(f"  {msg}")
 
     print("\nDone.")
     print("Summary:")
@@ -189,7 +258,7 @@ def main() -> int:
         print(f"  - {k}: {v}")
 
     failed = [k for k, v in summary.items() if "FAILED" in v]
-    return 1 if failed else 0
+    return 1 if failed or val_rc != 0 else 0
 
 
 if __name__ == "__main__":

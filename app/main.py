@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse
@@ -27,6 +28,7 @@ from .utils import (
 )
 from .model import nafas_model, device
 from .medications import get_medications, get_all_sources
+from .medication_advisor import recommend as advisor_recommend
 from .auto_train import ensure_models_trained
 
 # Reverse mapping to get string names for the 8 diseases
@@ -417,7 +419,46 @@ def diagnose_trinity(filename: str, patient: PatientProfile):
         },
         "all_disease_probabilities": all_confidences,
         "medication_suggestions": get_medications(final_disease),
+        "medication_cards": advisor_recommend(
+            final_disease,
+            context={
+                "age": patient.age,
+                "sex": patient.sex,
+                "bmi": patient.bmi,
+                "spo2": patient.spo2,
+                "temperature": patient.temperature,
+                "smoker": patient.smoker,
+                "patient_notes": patient.patient_notes,
+            },
+            top_n=4,
+        ),
     }
+
+
+class AdvisorContext(BaseModel):
+    age: Optional[float] = None
+    sex: Optional[int] = None
+    bmi: Optional[float] = None
+    spo2: Optional[float] = None
+    temperature: Optional[float] = None
+    smoker: Optional[int] = 0
+    patient_notes: Optional[str] = ""
+    top_n: Optional[int] = 4
+
+
+@app.post("/medications/{disease}/cards")
+def medication_cards(disease: str, ctx: AdvisorContext):
+    """Run the medication advisor (TF-IDF + ranker) for a disease.
+
+    Returns ranked, ready-to-render medication cards with name, description,
+    why-this-medicine reasoning, bulleted dosage / side-effects / price, and
+    a link to the product page (or chain search URL).
+    """
+    return advisor_recommend(
+        disease,
+        context=ctx.model_dump(exclude_none=True),
+        top_n=ctx.top_n or 4,
+    )
 
 
 @app.get("/medications/{disease}")

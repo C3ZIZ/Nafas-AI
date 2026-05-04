@@ -45,8 +45,8 @@ const dict = {
   male:                    { en: 'Male',                                    ar: 'ذكر' },
   female:                  { en: 'Female',                                  ar: 'أنثى' },
   bmi:                     { en: 'BMI',                                     ar: 'كتلة الجسم' },
-  spo2:                    { en: 'SpO₂ (%)',                                ar: 'الأكسجين %' },
-  temperature:             { en: 'Temperature (°C)',                        ar: 'الحرارة °م' },
+  spo2:                    { en: 'SpO₂ (%)',                                ar: 'تشبّع الأكسجين %' },
+  temperature:             { en: 'Temperature (°C)',                        ar: 'درجة الحرارة °م' },
   smoker:                  { en: 'Smoker',                                  ar: 'مدخن' },
   yes:                     { en: 'Yes',                                     ar: 'نعم' },
   no:                      { en: 'No',                                      ar: 'لا' },
@@ -74,7 +74,7 @@ const dict = {
   run_diagnosis:           { en: 'Run AI diagnosis',                        ar: 'تشغيل التشخيص' },
   running:                 { en: 'Running multi-modal AI…',                 ar: 'جاري التحليل…' },
   pick_first:              { en: 'Pick a sample, upload, or record audio first.',
-                              ar: 'اختر عيّنة أو ارفع ملف أو سجّل أولاً.' },
+                              ar: 'اختر عيّنة أو ارفع ملفاً أو سجّل أولاً.' },
 
   diagnosis:               { en: 'Diagnosis',                               ar: 'التشخيص' },
   empty_diagnosis:         { en: 'Run a diagnosis to see the fused result, model breakdown, and pharmacy suggestions.',
@@ -95,10 +95,10 @@ const dict = {
   icd10:                   { en: 'ICD-10',                                  ar: 'تصنيف ICD-10' },
 
   pharmacy_suggestions:    { en: 'Saudi Pharmacy Suggestions',              ar: 'اقتراحات الصيدليات السعودية' },
-  available_at:            { en: 'Available at Nahdi · Al-Dawaa · Al-Mamlaka',
-                              ar: 'متوفرة في النهدي · الدواء · المملكة' },
+  available_at:            { en: 'Top Saudi chains: Nahdi · Al-Dawaa · Al-Mamlaka · Whites · Innova · Bin Dawood · Tadawi · Boots',
+                              ar: 'أشهر الصيدليات السعودية: النهدي · الدواء · المملكة · وايتس · إنوفا · بن داود · تداوي · بوتس' },
   no_meds:                 { en: 'No medications match this disease/filter combination.',
-                              ar: 'لا توجد أدوية تطابق هذا المرض أو هذا الفلتر.' },
+                              ar: 'لا توجد أدوية تطابق المرض المحدد أو خيارات التصفية.' },
   rx:                      { en: 'Rx',                                      ar: 'وصفة' },
   otc:                     { en: 'OTC',                                     ar: 'بدون وصفة' },
   mechanism:               { en: 'Mechanism',                               ar: 'آلية العمل' },
@@ -116,7 +116,18 @@ const dict = {
 
   age_adult:               { en: 'Adult',                                   ar: 'بالغ' },
   age_pediatric:           { en: 'Paediatric',                              ar: 'أطفال' },
-  age_all:                 { en: 'All ages',                                ar: 'كل الأعمار' }
+  age_all:                 { en: 'All ages',                                ar: 'كل الأعمار' },
+
+  ai_picks:                { en: 'AI-ranked picks',                          ar: 'الترشيحات بالذكاء الاصطناعي' },
+  ai_model_label:          { en: 'TF-IDF + ranker',                          ar: 'TF-IDF + نموذج ترتيب' },
+  why_this:                { en: 'Why this medicine',                        ar: 'لماذا هذا الدواء' },
+  view_product:            { en: 'View product',                             ar: 'عرض المنتج' },
+  view_on:                 { en: 'View on',                                  ar: 'عرض على' },
+  also_search_on:          { en: 'Also search on',                           ar: 'ابحث أيضاً على' },
+  ranking_signals:         { en: 'Ranking signals used',                     ar: 'إشارات الترتيب المستخدمة' },
+  full_catalog:            { en: 'Full curated catalogue',                   ar: 'الكتالوج الكامل' },
+  show_full_catalog:       { en: 'Show full catalogue',                      ar: 'إظهار الكتالوج الكامل' },
+  hide_full_catalog:       { en: 'Hide full catalogue',                      ar: 'إخفاء الكتالوج الكامل' }
 }
 
 export function t(key) {

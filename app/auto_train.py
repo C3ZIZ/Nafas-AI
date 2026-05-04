@@ -22,6 +22,7 @@ DATA_DIR = ROOT / "data"
 NAFAS_W = ROOT / "nafas_weights.pth"
 NLP_W = ROOT / "nlp_weights.pkl"
 CLINICAL_W = ROOT / "clinical_weights.pkl"
+ADVISOR_W = ROOT / "advisor_weights.pkl"
 
 
 def _train_clinical_if_missing() -> str:
@@ -107,8 +108,25 @@ def _train_audio_if_missing() -> str:
         return f"audio: skipped ({e})"
 
 
+def _build_advisor_if_missing() -> str:
+    if ADVISOR_W.exists():
+        return "advisor: already built"
+    try:
+        from .medication_advisor import get_advisor
+        info = get_advisor().fit_and_save()
+        return (
+            f"advisor: built (terms={info['n_terms']}, descriptors={info['n_descriptors']})"
+        )
+    except Exception as e:
+        return f"advisor: skipped ({e})"
+
+
 def ensure_models_trained() -> dict[str, str]:
     """Train any missing model. Safe to call repeatedly — it no-ops once weights exist.
+
+    Four components are managed:
+        clinical Random Forest, NLP TF-IDF/NB, Audio CNN, and the
+        Medication Advisor TF-IDF index.
 
     Returns a dict of per-model status strings for logging.
     """
@@ -116,6 +134,7 @@ def ensure_models_trained() -> dict[str, str]:
         "clinical": _train_clinical_if_missing(),
         "nlp": _train_nlp_if_missing(),
         "audio": _train_audio_if_missing(),
+        "advisor": _build_advisor_if_missing(),
     }
     for k, v in status.items():
         print(f"[auto-train] {v}")

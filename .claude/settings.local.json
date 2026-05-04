@@ -4,7 +4,8 @@
       "Bash(*)",
       "Bash(Select-Object Name, PSIsContainer)",
       "PowerShell(*)",
-      "PowerShell(Get-ChildItem -Path C:\\)"
+      "WebSearch",
+      "WebFetch(domain:www.nahdionline.com)"
     ]
   }
 }
