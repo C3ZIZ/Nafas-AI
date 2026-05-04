@@ -1,7 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Small spinner */
-@keyframes spin-slow { from { transform: rotate(0deg);} to {transform: rotate(360deg);} }
-.spinner { width: 1rem; height: 1rem; border-radius: 9999px; border: 2px solid rgba(0,0,0,0.08); border-top-color: rgba(0,0,0,0.6); animation: spin-slow 1s linear infinite; }
+@layer base {
+  html, body, #app {
+    height: 100%;
+  }
+  body {
+    @apply font-sans antialiased text-slate-800;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(34, 211, 238, 0.18), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(45, 212, 191, 0.18), transparent 55%),
+      linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+    background-attachment: fixed;
+  }
+  [dir="rtl"], .ar {
+    font-family: "IBM Plex Sans Arabic", "Noto Naskh Arabic", Tahoma, sans-serif;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl border border-white/60 shadow-soft rounded-2xl;
+  }
+  .glass-dark {
+    @apply bg-slate-900/80 backdrop-blur-xl border border-white/10 text-ink rounded-2xl;
+  }
+  .field-label {
+    @apply block text-xs font-medium uppercase tracking-wider text-slate-500 mb-1;
+  }
+  .field-input {
+    @apply block w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2.5 text-sm
+           shadow-sm focus:border-accent focus:ring-2 focus:ring-accent/30 focus:outline-none transition;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium
+           transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn text-white bg-gradient-to-tr from-accent-700 via-accent-600 to-teal shadow-glow
+           hover:shadow-[0_15px_50px_-10px_rgba(34,211,238,0.6)];
+  }
+  .btn-ghost {
+    @apply btn bg-white/70 border border-slate-200 text-slate-700 hover:bg-white;
+  }
+  .seg-btn {
+    @apply flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-all text-slate-600;
+  }
+  .seg-btn-active {
+    @apply bg-white text-slate-900 shadow-soft;
+  }
+}
+
+/* Spinner */
+@keyframes spin-slow { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
+.spinner { width: 1rem; height: 1rem; border-radius: 9999px; border: 2px solid rgba(255,255,255,0.35); border-top-color: rgba(255,255,255,0.95); animation: spin-slow 0.8s linear infinite; }
+
+/* Animated probability bar */
+@keyframes growBar { from { width: 0%; } to { width: var(--w); } }
+.bar-fill { animation: growBar 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Pulse-dot for live recording */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1);}
+  50% { opacity: 0.45; transform: scale(0.85);}
+}
+.rec-dot { animation: pulse-dot 1s ease-in-out infinite; }
+
+/* Skeleton shimmer */
+@keyframes shimmer { 0% { background-position: -400px 0;} 100% { background-position: 400px 0;} }
+.skeleton {
+  background: linear-gradient(90deg, #e5e7eb 0%, #f3f4f6 50%, #e5e7eb 100%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 0.5rem;
+}

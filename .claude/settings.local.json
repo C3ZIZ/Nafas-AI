@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Bash(Select-Object Name, PSIsContainer)",
+      "PowerShell(*)",
+      "PowerShell(Get-ChildItem -Path C:\\)"
+    ]
+  }
+}

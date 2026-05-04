@@ -35,3 +35,15 @@ if os.path.exists('nlp_weights.pkl'):
         nlp_model = joblib.load('nlp_weights.pkl')
     except Exception:
         nlp_model = None
+
+
+def reload_nlp_model():
+    """Reload the NLP pipeline from disk after a fresh training run."""
+    global nlp_model
+    if os.path.exists('nlp_weights.pkl'):
+        try:
+            nlp_model = joblib.load('nlp_weights.pkl')
+            return True
+        except Exception:
+            return False
+    return False

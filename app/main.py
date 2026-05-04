@@ -15,8 +15,8 @@ import json
 import shutil
 import uuid
 
-from .clinical_model import rf_model
-from .nlp_model import nlp_model
+from . import clinical_model as _clinical_module
+from . import nlp_model as _nlp_module
 
 from .utils import (
     get_audio_info,
@@ -26,6 +26,8 @@ from .utils import (
     prepare_tensor_for_ai,
 )
 from .model import nafas_model, device
+from .medications import get_medications
+from .auto_train import ensure_models_trained
 
 # Reverse mapping to get string names for the 8 diseases
 REVERSE_DISEASE_MAP = {
@@ -40,6 +42,20 @@ REVERSE_DISEASE_MAP = {
 }
 
 app = FastAPI(title="Nafas AI")
+
+
+@app.on_event("startup")
+def _ensure_trained_on_startup():
+    """Train any missing models (CNN half-dataset, full NLP, full clinical RF).
+
+    This makes the API self-bootstrapping: a fresh checkout of the repo can
+    `uvicorn app.main:app` and the server will train whatever weights are
+    missing before serving the first request. No-ops once weights exist.
+    """
+    try:
+        ensure_models_trained()
+    except Exception as e:
+        print(f"[startup] auto-train guard caught: {e}")
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 AUDIO_DATA_DIR = DATA_DIR / "audio_and_txt_files"
@@ -293,7 +309,7 @@ def multi_modal_diagnosis(filename: str, vitals: PatientVitals):
     if not os.path.exists(audio_path):
         raise HTTPException(status_code=404, detail="Audio file not found")
         
-    if rf_model is None:
+    if _clinical_module.rf_model is None:
         raise HTTPException(status_code=500, detail="Clinical model not trained. Run train.py first.")
 
     # --- PIPELINE A: AUDIO (CNN) ---
@@ -305,9 +321,9 @@ def multi_modal_diagnosis(filename: str, vitals: PatientVitals):
         audio_probs = F.softmax(raw_audio_output, dim=1).cpu().numpy()[0]
 
     # --- PIPELINE B: CLINICAL (Random Forest) ---
-    vitals_array = np.array([[vitals.age, vitals.sex, vitals.bmi, 
+    vitals_array = np.array([[vitals.age, vitals.sex, vitals.bmi,
                               vitals.spo2, vitals.temperature, vitals.smoker]])
-    clinical_probs = rf_model.predict_proba(vitals_array)[0]
+    clinical_probs = _clinical_module.rf_model.predict_proba(vitals_array)[0]
 
     # --- THE FUSION CENTER (Soft Voting) ---
     fused_probs = (audio_probs * 0.6) + (clinical_probs * 0.4)
@@ -348,7 +364,7 @@ def diagnose_trinity(filename: str, patient: PatientProfile):
     if not os.path.exists(audio_path):
         raise HTTPException(status_code=404, detail="Audio file not found")
         
-    if rf_model is None or nlp_model is None:
+    if _clinical_module.rf_model is None or _nlp_module.nlp_model is None:
         raise HTTPException(status_code=500, detail="Models missing. Run train.py")
 
     # --- BRAIN 1: AUDIO (CNN) ---
@@ -359,12 +375,12 @@ def diagnose_trinity(filename: str, patient: PatientProfile):
         audio_probs = F.softmax(raw_audio, dim=1).cpu().numpy()[0]
 
     # --- BRAIN 2: VITALS (Random Forest) ---
-    vitals_array = np.array([[patient.age, patient.sex, patient.bmi, 
+    vitals_array = np.array([[patient.age, patient.sex, patient.bmi,
                               patient.spo2, patient.temperature, patient.smoker]])
-    vitals_probs = rf_model.predict_proba(vitals_array)[0]
+    vitals_probs = _clinical_module.rf_model.predict_proba(vitals_array)[0]
 
     # --- BRAIN 3: TEXT (NLP) ---
-    nlp_probs = nlp_model.predict_proba([patient.patient_notes])[0]
+    nlp_probs = _nlp_module.nlp_model.predict_proba([patient.patient_notes])[0]
 
     # --- THE FUSION CENTER (Soft Voting) ---
     # We assign weights based on clinical importance
@@ -381,6 +397,11 @@ def diagnose_trinity(filename: str, patient: PatientProfile):
         "precautions": ["Consult a healthcare provider for a detailed plan."]
     })
 
+    all_confidences = {
+        REVERSE_DISEASE_MAP[idx]: round(float(prob * 100), 2)
+        for idx, prob in enumerate(fused_probs)
+    }
+
     return {
         "status": "Success",
         "final_diagnosis": final_disease,
@@ -393,5 +414,27 @@ def diagnose_trinity(filename: str, patient: PatientProfile):
             "audio_cnn_prediction": REVERSE_DISEASE_MAP[int(np.argmax(audio_probs))],
             "vitals_rf_prediction": REVERSE_DISEASE_MAP[int(np.argmax(vitals_probs))],
             "symptoms_nlp_prediction": REVERSE_DISEASE_MAP[int(np.argmax(nlp_probs))]
-        }
+        },
+        "all_disease_probabilities": all_confidences,
+        "medication_suggestions": get_medications(final_disease),
     }
+
+
+@app.get("/medications/{disease}")
+def medications_for_disease(disease: str):
+    """Lookup Saudi pharmacy medication suggestions for a disease label.
+
+    Disease must be one of: Healthy, COPD, Asthma, Bronchiectasis,
+    Pneumonia, URTI, LRTI, Bronchiolitis.
+    """
+    return get_medications(disease)
+
+
+@app.post("/admin/retrain")
+def admin_retrain():
+    """Force a re-check of model weights and train any that are missing.
+
+    Does NOT delete existing weights. To retrain from scratch, delete
+    the relevant `*_weights.*` files first, then call this endpoint.
+    """
+    return ensure_models_trained()

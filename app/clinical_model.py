@@ -34,3 +34,15 @@ def train_and_save_rf():
 rf_model = None
 if os.path.exists('clinical_weights.pkl'):
     rf_model = joblib.load('clinical_weights.pkl')
+
+
+def reload_rf_model():
+    """Reload the Random Forest from disk after a fresh training run."""
+    global rf_model
+    if os.path.exists('clinical_weights.pkl'):
+        try:
+            rf_model = joblib.load('clinical_weights.pkl')
+            return True
+        except Exception:
+            return False
+    return False
