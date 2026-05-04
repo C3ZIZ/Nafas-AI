@@ -63,8 +63,6 @@ def _train_audio_if_missing() -> str:
     if NAFAS_W.exists():
         return "audio: already trained"
     try:
-        import glob
-
         import torch
         import torch.nn as nn
         import torch.optim as optim
@@ -73,13 +71,10 @@ def _train_audio_if_missing() -> str:
         from .dataset import NafasDiseaseDataset
         from .model import device, nafas_model, reload_weights
 
-        # Half-of-dataset cap: count txt annotations and use ~50%.
-        txt_files = glob.glob(str(DATA_DIR / "**" / "*.txt"), recursive=True)
-        # Each txt file produces multiple breath segments; cap at half of the
-        # available txt files but never more than 400 segments to stay quick.
-        cap = max(50, min(400, len(txt_files) // 2))
-
-        dataset = NafasDiseaseDataset(data_dir=str(DATA_DIR), max_samples=cap)
+        # No cap — train the audio CNN on every available breath segment.
+        # First server boot on a fresh checkout will be slow; subsequent
+        # boots are instant because nafas_weights.pth exists.
+        dataset = NafasDiseaseDataset(data_dir=str(DATA_DIR), max_samples=None)
         if len(dataset) == 0:
             return "audio: skipped (no usable breath segments)"
 
@@ -103,7 +98,7 @@ def _train_audio_if_missing() -> str:
 
         torch.save(nafas_model.state_dict(), str(NAFAS_W))
         reload_weights()
-        return f"audio: trained (samples={len(dataset)}, epochs={epochs})"
+        return f"audio: trained on full dataset (samples={len(dataset)}, epochs={epochs})"
     except Exception as e:
         return f"audio: skipped ({e})"
 

@@ -37,10 +37,6 @@ WEIGHTS = {
     "advisor":  ROOT / "advisor_weights.pkl",
 }
 
-# Treat ~unbounded as the "use everything" cap for the audio dataset.
-FULL_AUDIO_CAP = 10**9
-
-
 def _confirm(prompt: str) -> bool:
     try:
         return input(prompt).strip().lower() in {"y", "yes"}
@@ -154,7 +150,7 @@ def train_audio_full(epochs: int = 5) -> str:
         from app.model import device, nafas_model
 
         print(f"[audio] Building dataset (no sample cap)…")
-        dataset = NafasDiseaseDataset(data_dir=str(ROOT / "data"), max_samples=FULL_AUDIO_CAP)
+        dataset = NafasDiseaseDataset(data_dir=str(ROOT / "data"), max_samples=None)
         n = len(dataset)
         if n == 0:
             return "audio: skipped (no breath segments found)"

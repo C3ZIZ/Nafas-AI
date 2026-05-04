@@ -33,8 +33,19 @@ DISEASE_MAP = {
 
 class NafasDiseaseDataset(Dataset):
     def __init__(self, data_dir="data", max_samples=100):
+        """Build the breath-segment dataset.
+
+        Args:
+            data_dir:    folder containing `patient_diagnosis.csv` and the
+                         annotation/.wav files (recursively scanned).
+            max_samples: cap on number of (segment, label) pairs to load.
+                         Pass `None` (or any value <= 0) to load every
+                         segment found — used for full-dataset training.
+        """
         self.samples = []
         self.sr = 22050
+        # Treat None / non-positive caps as "no limit".
+        self._unlimited = max_samples is None or max_samples <= 0
 
         # Load the patient diagnoses
         csv_path = os.path.join(data_dir, "patient_diagnosis.csv")
@@ -50,7 +61,7 @@ class NafasDiseaseDataset(Dataset):
         txt_files = glob.glob(txt_pattern, recursive=True)
 
         for txt_path in txt_files:
-            if len(self.samples) >= max_samples:
+            if not self._unlimited and len(self.samples) >= max_samples:
                 break
 
             filename = os.path.basename(txt_path)
@@ -88,7 +99,7 @@ class NafasDiseaseDataset(Dataset):
                 continue
 
             for _, row in annotations.iterrows():
-                if len(self.samples) >= max_samples:
+                if not self._unlimited and len(self.samples) >= max_samples:
                     break
 
                 start_idx = int(float(row["start"]) * self.sr)
