@@ -141,10 +141,13 @@ def train_advisor_full() -> str:
 
 def train_audio_full(epochs: int = 5) -> str:
     try:
+        from collections import Counter
+
+        import numpy as np
         import torch
         import torch.nn as nn
         import torch.optim as optim
-        from torch.utils.data import DataLoader
+        from torch.utils.data import DataLoader, WeightedRandomSampler
 
         from app.dataset import NafasDiseaseDataset
         from app.model import device, nafas_model
@@ -154,10 +157,26 @@ def train_audio_full(epochs: int = 5) -> str:
         n = len(dataset)
         if n == 0:
             return "audio: skipped (no breath segments found)"
-        print(f"[audio] Loaded {n} breath segments. Training {epochs} epochs on {device}.")
 
-        loader = DataLoader(dataset, batch_size=1, shuffle=True)
-        criterion = nn.CrossEntropyLoss()
+        # ---- class-weighted training (the dataset is heavily imbalanced) ----
+        labels = [int(lbl) for _, lbl in dataset.samples]
+        counts = Counter(labels)
+        n_classes = 8  # see REVERSE_DISEASE_MAP
+        # Inverse-frequency weights, smoothed so unseen classes don't divide by 0.
+        class_w = np.zeros(n_classes, dtype=np.float32)
+        for c in range(n_classes):
+            class_w[c] = n / (n_classes * max(1, counts.get(c, 0)))
+        class_w_t = torch.tensor(class_w, dtype=torch.float32, device=device)
+        # Per-sample sampling weight = class weight, so rare classes are
+        # oversampled on every epoch.
+        sample_w = [class_w[int(lbl)] for lbl in labels]
+        sampler = WeightedRandomSampler(sample_w, num_samples=n, replacement=True)
+        print(f"[audio] class counts: {dict(counts)}")
+        print(f"[audio] class weights: {[round(float(x), 2) for x in class_w]}")
+        print(f"[audio] training {epochs} epochs on {device}, n={n}")
+
+        loader = DataLoader(dataset, batch_size=1, sampler=sampler)
+        criterion = nn.CrossEntropyLoss(weight=class_w_t)
         optimizer = optim.Adam(nafas_model.parameters(), lr=0.001)
 
         nafas_model.train()
@@ -178,7 +197,7 @@ def train_audio_full(epochs: int = 5) -> str:
             print(f"[audio] epoch {epoch+1}/{epochs} loss={avg:.4f} acc={acc:.2f}%")
 
         torch.save(nafas_model.state_dict(), str(WEIGHTS["audio"]))
-        return f"audio: trained on full dataset (n={n}, epochs={epochs})"
+        return f"audio: trained on full dataset (n={n}, epochs={epochs}, class-weighted)"
     except Exception as e:
         return f"audio: FAILED ({e})"
 

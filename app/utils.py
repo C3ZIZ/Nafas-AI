@@ -174,11 +174,131 @@ def generate_mel_spectrogram(audio_path):
 def prepare_tensor_for_ai(audio_path):
     """Convert an audio file into a model-ready mel-spectrogram tensor.
 
+    IMPORTANT: this MUST match how the training dataset processes audio
+    (`app/dataset.py`):
+
+        1. Resample to 22050 Hz
+        2. Butterworth band-pass filter 50–2500 Hz
+        3. Mel-spectrogram (n_mels=128, fmax=2500)
+        4. Log-power conversion vs ref=max
+
     Returns a tensor with shape [1, 1, 128, time_frames].
+
+    NOTE: this still passes the *whole* file as a single sample. For
+    breath-cycle classification you should prefer
+    `predict_audio_segmented(...)` which slices into segments using the
+    matching `.txt` annotation (or a sliding window) and aggregates
+    softmax probabilities — the same way the model was trained.
     """
     y, sr = librosa.load(audio_path, sr=22050)
+    # Apply the same band-pass filter the training dataset uses,
+    # otherwise inference sees a different input distribution.
+    y = butter_bandpass_filter(y, fs=sr)
     S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=2500)
     S_dB = librosa.power_to_db(S, ref=np.max)
 
     tensor = torch.tensor(S_dB, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
     return tensor
+
+
+def _segment_audio(y, sr, txt_path=None, window_sec=2.5, hop_sec=1.5,
+                   min_segment_samples=4096):
+    """Slice cleaned audio into breath-cycle segments.
+
+    If `txt_path` exists and is parseable, uses the ICBHI per-breath
+    annotation (start, end, crackle, wheeze) — this matches training
+    exactly. Otherwise falls back to a sliding window.
+
+    Returns a list of 1-D np.ndarrays.
+    """
+    segments = []
+    if txt_path is not None:
+        try:
+            ann = pd.read_csv(
+                txt_path,
+                sep=r"\s+",
+                header=None,
+                names=["start", "end", "crackle", "wheeze"],
+                engine="python",
+            )
+            for _, row in ann.iterrows():
+                s = max(0, int(float(row["start"]) * sr))
+                e = min(len(y), int(float(row["end"]) * sr))
+                if e - s >= min_segment_samples:
+                    segments.append(y[s:e])
+        except Exception:
+            segments = []
+    if segments:
+        return segments
+
+    # Fallback: sliding-window over the whole file.
+    win = int(window_sec * sr)
+    hop = int(hop_sec * sr)
+    if len(y) <= win:
+        if len(y) >= min_segment_samples:
+            return [y]
+        return []
+    out = []
+    for start in range(0, len(y) - win + 1, hop):
+        out.append(y[start:start + win])
+    # Always include the trailing window so we don't drop the end.
+    if out and out[-1] is not y[-win:]:
+        out.append(y[-win:])
+    return out
+
+
+def _melspec_tensor(segment, sr=22050):
+    """Mel-spec a single segment into the [1,1,128,T] tensor the CNN expects."""
+    S = librosa.feature.melspectrogram(y=segment, sr=sr, n_mels=128, fmax=2500)
+    S_dB = librosa.power_to_db(S, ref=np.max)
+    return torch.tensor(S_dB, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+
+
+def predict_audio_segmented(audio_path, model, device, txt_path=None,
+                            return_per_segment=False):
+    """Run the audio CNN on every breath segment and average softmax probs.
+
+    This is the recommended inference path. It mirrors what the model
+    actually saw during training (filtered, per-breath-cycle mel-specs).
+
+    Args:
+        audio_path:  path to the .wav file.
+        model:       the audio CNN (will be set to eval()).
+        device:      torch device.
+        txt_path:    optional ICBHI-style annotation. Pass `None` and the
+                     function falls back to a sliding window.
+        return_per_segment: if True, also return the per-segment probability
+                     matrix shaped [n_segments, n_classes].
+
+    Returns:
+        np.ndarray of shape (n_classes,) — mean softmax probabilities.
+        If `return_per_segment=True`, returns
+        (mean_probs, per_segment_probs, n_segments).
+    """
+    import torch.nn.functional as F  # local import to avoid hard top-level dep cost
+
+    y, sr = librosa.load(audio_path, sr=22050)
+    y = butter_bandpass_filter(y, fs=sr)
+    segments = _segment_audio(y, sr, txt_path=txt_path)
+
+    if not segments:
+        # Empty audio — fall back to whole-file mel-spec so we never crash.
+        tensor = _melspec_tensor(y, sr=sr).to(device)
+        model.eval()
+        with torch.no_grad():
+            logits = model(tensor)
+            probs = F.softmax(logits, dim=1).cpu().numpy()[0]
+        return (probs, probs.reshape(1, -1), 1) if return_per_segment else probs
+
+    per_seg = []
+    model.eval()
+    with torch.no_grad():
+        for seg in segments:
+            tensor = _melspec_tensor(seg, sr=sr).to(device)
+            logits = model(tensor)
+            probs = F.softmax(logits, dim=1).cpu().numpy()[0]
+            per_seg.append(probs)
+
+    per_seg_arr = np.vstack(per_seg)
+    mean_probs = per_seg_arr.mean(axis=0)
+    return (mean_probs, per_seg_arr, len(segments)) if return_per_segment else mean_probs

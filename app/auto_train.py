@@ -63,10 +63,13 @@ def _train_audio_if_missing() -> str:
     if NAFAS_W.exists():
         return "audio: already trained"
     try:
+        from collections import Counter
+
+        import numpy as np
         import torch
         import torch.nn as nn
         import torch.optim as optim
-        from torch.utils.data import DataLoader
+        from torch.utils.data import DataLoader, WeightedRandomSampler
 
         from .dataset import NafasDiseaseDataset
         from .model import device, nafas_model, reload_weights
@@ -75,11 +78,24 @@ def _train_audio_if_missing() -> str:
         # First server boot on a fresh checkout will be slow; subsequent
         # boots are instant because nafas_weights.pth exists.
         dataset = NafasDiseaseDataset(data_dir=str(DATA_DIR), max_samples=None)
-        if len(dataset) == 0:
+        n = len(dataset)
+        if n == 0:
             return "audio: skipped (no usable breath segments)"
 
-        loader = DataLoader(dataset, batch_size=1, shuffle=True)
-        criterion = nn.CrossEntropyLoss()
+        # Class-weighted CE + balanced sampler — the patient_diagnosis.csv
+        # is heavily imbalanced (COPD ~50% of patients, Asthma=1).
+        labels = [int(lbl) for _, lbl in dataset.samples]
+        counts = Counter(labels)
+        n_classes = 8
+        class_w = np.zeros(n_classes, dtype=np.float32)
+        for c in range(n_classes):
+            class_w[c] = n / (n_classes * max(1, counts.get(c, 0)))
+        class_w_t = torch.tensor(class_w, dtype=torch.float32, device=device)
+        sample_w = [class_w[int(lbl)] for lbl in labels]
+        sampler = WeightedRandomSampler(sample_w, num_samples=n, replacement=True)
+
+        loader = DataLoader(dataset, batch_size=1, sampler=sampler)
+        criterion = nn.CrossEntropyLoss(weight=class_w_t)
         optimizer = optim.Adam(nafas_model.parameters(), lr=0.001)
 
         nafas_model.train()

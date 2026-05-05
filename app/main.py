@@ -25,6 +25,7 @@ from .utils import (
     get_segments,
     generate_mel_spectrogram,
     prepare_tensor_for_ai,
+    predict_audio_segmented,
 )
 from .model import nafas_model, device
 from .medications import get_medications, get_all_sources
@@ -225,22 +226,22 @@ def get_spectrogram(filename: str):
 @app.get("/predict/{filename}")
 def predict_audio(filename: str):
     path = _resolve_data_file(filename)
+    txt_path = path.with_suffix(".txt")
+    txt_arg = str(txt_path) if txt_path.exists() else None
 
-    # Convert audio into the tensor format expected by the CNN.
-    input_tensor = prepare_tensor_for_ai(str(path)).to(device)
-
-    nafas_model.eval()
-    with torch.no_grad():
-        output = nafas_model(input_tensor)
-        prediction_index = torch.argmax(output, dim=1).item()
-
-    # Map prediction index to disease name using the reverse map
-    result = REVERSE_DISEASE_MAP.get(prediction_index, "Unknown")
+    # Use the segment-aggregating inference path that mirrors training.
+    mean_probs, per_seg_probs, n_seg = predict_audio_segmented(
+        str(path), nafas_model, device, txt_path=txt_arg, return_per_segment=True
+    )
+    prediction_index = int(np.argmax(mean_probs))
 
     return {
         "filename": filename,
-        "prediction": result,
-        "raw_model_output": output.detach().cpu().tolist(),
+        "prediction": REVERSE_DISEASE_MAP.get(prediction_index, "Unknown"),
+        "n_segments": int(n_seg),
+        "mean_probabilities": {
+            REVERSE_DISEASE_MAP[i]: round(float(p) * 100, 2) for i, p in enumerate(mean_probs)
+        },
         "device_used": str(device),
     }
 
@@ -266,27 +267,23 @@ def full_diagnosis(filename: str):
             crackles_count = 0
             wheezes_count = 0
 
-    # 2. Prepare the audio for the AI
-    input_tensor = prepare_tensor_for_ai(str(path)).to(device)
+    # 2. Run the audio CNN over per-breath segments (matches training).
+    txt_arg = str(txt_path) if txt_path.exists() else None
+    mean_probs = predict_audio_segmented(
+        str(path), nafas_model, device, txt_path=txt_arg
+    )
+    top_class_idx = int(np.argmax(mean_probs))
+    top_prob = float(mean_probs[top_class_idx]) * 100
 
-    # 3. AI Prediction Pipeline
-    nafas_model.eval()
-    with torch.no_grad():
-        raw_output = nafas_model(input_tensor)
-        # Convert raw logits to percentages using softmax
-        probabilities = F.softmax(raw_output, dim=1)[0] * 100
-        top_prob, top_class_idx = torch.max(probabilities, dim=0)
-
-    # 4. Format all confidences nicely
-    all_confidences = {}
-    for idx, prob in enumerate(probabilities):
-        disease_name = REVERSE_DISEASE_MAP.get(idx, str(idx))
-        all_confidences[disease_name] = round(prob.item(), 2)
+    all_confidences = {
+        REVERSE_DISEASE_MAP.get(i, str(i)): round(float(p) * 100, 2)
+        for i, p in enumerate(mean_probs)
+    }
 
     return {
         "filename": filename,
-        "most_likely_disease": REVERSE_DISEASE_MAP.get(top_class_idx.item(), "Unknown"),
-        "confidence_score": f"{round(top_prob.item(), 2)}%",
+        "most_likely_disease": REVERSE_DISEASE_MAP.get(top_class_idx, "Unknown"),
+        "confidence_score": f"{round(top_prob, 2)}%",
         "anomalies_detected": {
             "total_crackles": crackles_count,
             "total_wheezes": wheezes_count,
@@ -314,13 +311,12 @@ def multi_modal_diagnosis(filename: str, vitals: PatientVitals):
     if _clinical_module.rf_model is None:
         raise HTTPException(status_code=500, detail="Clinical model not trained. Run train.py first.")
 
-    # --- PIPELINE A: AUDIO (CNN) ---
-    input_tensor = prepare_tensor_for_ai(audio_path).to(device)
-    nafas_model.eval()
-    with torch.no_grad():
-        raw_audio_output = nafas_model(input_tensor)
-        # Get audio probabilities (shape: 1x8)
-        audio_probs = F.softmax(raw_audio_output, dim=1).cpu().numpy()[0]
+    # --- PIPELINE A: AUDIO (CNN) — segment-aggregated to match training. ---
+    txt_p = Path(audio_path).with_suffix(".txt")
+    audio_probs = predict_audio_segmented(
+        audio_path, nafas_model, device,
+        txt_path=str(txt_p) if txt_p.exists() else None,
+    )
 
     # --- PIPELINE B: CLINICAL (Random Forest) ---
     vitals_array = np.array([[vitals.age, vitals.sex, vitals.bmi,
@@ -361,7 +357,7 @@ class PatientProfile(BaseModel):
 
 
 @app.post("/diagnose_trinity/{filename}")
-def diagnose_trinity(filename: str, patient: PatientProfile):
+def diagnose_trinity(filename: str, patient: PatientProfile, debug: bool = False):
     audio_path = str(_resolve_data_file(filename))
     if not os.path.exists(audio_path):
         raise HTTPException(status_code=404, detail="Audio file not found")
@@ -369,12 +365,13 @@ def diagnose_trinity(filename: str, patient: PatientProfile):
     if _clinical_module.rf_model is None or _nlp_module.nlp_model is None:
         raise HTTPException(status_code=500, detail="Models missing. Run train.py")
 
-    # --- BRAIN 1: AUDIO (CNN) ---
-    input_tensor = prepare_tensor_for_ai(audio_path).to(device)
-    nafas_model.eval()
-    with torch.no_grad():
-        raw_audio = nafas_model(input_tensor)
-        audio_probs = F.softmax(raw_audio, dim=1).cpu().numpy()[0]
+    # --- BRAIN 1: AUDIO (CNN) — segment-aggregated to match training. ---
+    txt_p = Path(audio_path).with_suffix(".txt")
+    audio_probs, per_seg_probs, n_segments = predict_audio_segmented(
+        audio_path, nafas_model, device,
+        txt_path=str(txt_p) if txt_p.exists() else None,
+        return_per_segment=True,
+    )
 
     # --- BRAIN 2: VITALS (Random Forest) ---
     vitals_array = np.array([[patient.age, patient.sex, patient.bmi,
@@ -404,7 +401,7 @@ def diagnose_trinity(filename: str, patient: PatientProfile):
         for idx, prob in enumerate(fused_probs)
     }
 
-    return {
+    response = {
         "status": "Success",
         "final_diagnosis": final_disease,
         "overall_confidence": f"{round(confidence, 2)}%",
@@ -433,6 +430,30 @@ def diagnose_trinity(filename: str, patient: PatientProfile):
             top_n=4,
         ),
     }
+
+    if debug:
+        # Surface per-stage outputs so the user can see exactly where a
+        # diagnosis went wrong. Pass `?debug=true` on the request.
+        response["debug"] = {
+            "audio": {
+                "n_segments": int(n_segments),
+                "mean_probs": {REVERSE_DISEASE_MAP[i]: round(float(p) * 100, 2) for i, p in enumerate(audio_probs)},
+                "per_segment_top_class": [
+                    REVERSE_DISEASE_MAP[int(np.argmax(p))] for p in per_seg_probs
+                ],
+            },
+            "vitals": {
+                "probs": {REVERSE_DISEASE_MAP[i]: round(float(p) * 100, 2) for i, p in enumerate(vitals_probs)},
+            },
+            "nlp": {
+                "probs": {REVERSE_DISEASE_MAP[i]: round(float(p) * 100, 2) for i, p in enumerate(nlp_probs)},
+                "input_text": patient.patient_notes,
+            },
+            "fusion_weights": {"audio": 0.40, "vitals": 0.30, "nlp": 0.30},
+            "fused_probs": all_confidences,
+        }
+
+    return response
 
 
 class AdvisorContext(BaseModel):
