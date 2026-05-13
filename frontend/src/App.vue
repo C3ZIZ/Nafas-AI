@@ -35,11 +35,43 @@
           </div>
         </div>
       </div>
+
+      <!-- Top-level tabs -->
+      <nav class="max-w-7xl mx-auto px-4 sm:px-6">
+        <div class="flex items-center gap-1 -mb-px overflow-x-auto no-scrollbar">
+          <button
+            v-for="tab in tabs"
+            :key="tab.key"
+            @click="activeTab = tab.key"
+            :aria-current="activeTab === tab.key ? 'page' : undefined"
+            :class="[
+              'inline-flex items-center gap-2 px-3 sm:px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+              activeTab === tab.key
+                ? 'border-brand-600 text-ink'
+                : 'border-transparent text-ink-muted hover:text-ink hover:border-line-strong'
+            ]">
+            <component :is="tab.icon" class="h-4 w-4" :stroke-width="1.75" />
+            {{ t(tab.labelKey) }}
+          </button>
+        </div>
+      </nav>
     </header>
+
+    <!-- Key-missing banner -->
+    <div v-if="llmConfigured === false" class="bg-amber-50 border-b border-amber-200">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 flex items-start gap-2.5 text-xs sm:text-sm text-amber-900">
+        <AlertTriangle class="h-4 w-4 mt-0.5 shrink-0" :stroke-width="2" />
+        <div class="min-w-0">
+          <span class="font-semibold">{{ t('no_key_title') }}.</span>
+          <span class="text-amber-800"> {{ t('no_key_desc') }}</span>
+        </div>
+      </div>
+    </div>
 
     <!-- Main -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-      <Dashboard />
+      <Dashboard v-show="activeTab === 'triage'" />
+      <DoctorChat v-if="activeTab === 'chat'" />
     </main>
 
     <!-- Footer -->
@@ -56,7 +88,30 @@
 </template>
 
 <script setup>
+import { ref, onMounted } from 'vue'
+import axios from 'axios'
 import Dashboard from './components/Dashboard.vue'
+import DoctorChat from './components/DoctorChat.vue'
 import { LOCALES, locale, setLocale, isRTL, t } from './i18n.js'
-import { Stethoscope } from 'lucide-vue-next'
+import { Stethoscope, Activity, MessageSquareText, AlertTriangle } from 'lucide-vue-next'
+
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+
+const tabs = [
+  { key: 'triage', labelKey: 'tab_triage', icon: Activity },
+  { key: 'chat',   labelKey: 'tab_chat',   icon: MessageSquareText }
+]
+const activeTab = ref('triage')
+
+// null = unknown, true = configured, false = HF_TOKEN missing
+const llmConfigured = ref(null)
+
+onMounted(async () => {
+  try {
+    const { data } = await axios.get(`${API_BASE}/llm_status`)
+    llmConfigured.value = !!data?.configured
+  } catch {
+    llmConfigured.value = null
+  }
+})
 </script>

@@ -18,6 +18,8 @@ import uuid
 
 from . import clinical_model as _clinical_module
 from . import nlp_model as _nlp_module
+from .text_normalizer import to_clinical_english, contains_arabic
+from .llm_provider import chat as llm_chat, health as llm_health, LLMProviderError
 
 from .utils import (
     get_audio_info,
@@ -379,7 +381,17 @@ def diagnose_trinity(filename: str, patient: PatientProfile, debug: bool = False
     vitals_probs = _clinical_module.rf_model.predict_proba(vitals_array)[0]
 
     # --- BRAIN 3: TEXT (NLP) ---
-    nlp_probs = _nlp_module.nlp_model.predict_proba([patient.patient_notes])[0]
+    # The NLP pipeline (TF-IDF + Naive Bayes) and the medication-advisor's
+    # TF-IDF ranker were both trained on an English clinical vocabulary
+    # (see data/master_nlp_data.csv). If the user types Arabic, the
+    # Hugging Face translation API converts it before inference. A
+    # missing/invalid HF_TOKEN surfaces here as a 503 — by design, we
+    # do NOT fall back to a partial local dictionary.
+    try:
+        nlp_text = to_clinical_english(patient.patient_notes)
+    except LLMProviderError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    nlp_probs = _nlp_module.nlp_model.predict_proba([nlp_text])[0]
 
     # --- THE FUSION CENTER (Soft Voting) ---
     # We assign weights based on clinical importance
@@ -425,7 +437,9 @@ def diagnose_trinity(filename: str, patient: PatientProfile, debug: bool = False
                 "spo2": patient.spo2,
                 "temperature": patient.temperature,
                 "smoker": patient.smoker,
-                "patient_notes": patient.patient_notes,
+                # Feed the normalized form so the advisor's TF-IDF cosine
+                # against med descriptors works for Arabic input too.
+                "patient_notes": nlp_text,
             },
             top_n=4,
         ),
@@ -448,6 +462,8 @@ def diagnose_trinity(filename: str, patient: PatientProfile, debug: bool = False
             "nlp": {
                 "probs": {REVERSE_DISEASE_MAP[i]: round(float(p) * 100, 2) for i, p in enumerate(nlp_probs)},
                 "input_text": patient.patient_notes,
+                "normalized_text": nlp_text,
+                "was_translated": nlp_text != patient.patient_notes,
             },
             "fusion_weights": {"audio": 0.40, "vitals": 0.30, "nlp": 0.30},
             "fused_probs": all_confidences,
@@ -475,11 +491,104 @@ def medication_cards(disease: str, ctx: AdvisorContext):
     why-this-medicine reasoning, bulleted dosage / side-effects / price, and
     a link to the product page (or chain search URL).
     """
+    payload = ctx.model_dump(exclude_none=True)
+    # Normalize Arabic patient_notes onto the English clinical vocabulary
+    # the advisor's TF-IDF ranker was fitted on. Pure-English text passes
+    # through unchanged.
+    if payload.get("patient_notes"):
+        try:
+            payload["patient_notes"] = to_clinical_english(payload["patient_notes"])
+        except LLMProviderError as e:
+            raise HTTPException(status_code=503, detail=str(e))
     return advisor_recommend(
         disease,
-        context=ctx.model_dump(exclude_none=True),
+        context=payload,
         top_n=ctx.top_n or 4,
     )
+
+
+# ---------------------------------------------------------------------------
+# Doctor-facing chat assistant
+#
+# Unrelated to the breath-flow pipeline above: a free-form medical
+# consultation chat for clinicians. Routed through Hugging Face
+# Inference Providers via app/llm_provider.py.
+# ---------------------------------------------------------------------------
+
+_DOCTOR_SYSTEM_PROMPT_EN = (
+    "You are an evidence-based clinical decision-support assistant for "
+    "licensed physicians. The user is a doctor seeking help reasoning "
+    "about symptoms, differential diagnoses, and medication options.\n\n"
+    "Guidelines:\n"
+    "- Give concrete, actionable answers; do not refuse normal clinical "
+    "questions about drugs, doses, interactions, or contraindications.\n"
+    "- When suggesting medications, include drug class, typical adult "
+    "dose range, key contraindications, and notable interactions.\n"
+    "- For differentials, rank the most likely conditions first and note "
+    "the discriminating features.\n"
+    "- Flag red-flag symptoms that warrant urgent escalation.\n"
+    "- Reply in the SAME language the doctor used (English or Arabic). "
+    "If asked in Arabic, answer in Arabic.\n"
+    "- Always close with a one-line reminder that this is decision "
+    "support, not a substitute for the physician's own judgement."
+)
+
+
+class ChatMessage(BaseModel):
+    role: str    # 'user' or 'assistant'
+    content: str
+
+
+class DoctorChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    temperature: Optional[float] = 0.3
+    max_tokens: Optional[int] = 768
+
+
+@app.post("/doctor_chat")
+def doctor_chat(req: DoctorChatRequest):
+    """Free-form clinical chat for a doctor. Bilingual (EN/AR).
+
+    Body:
+        {
+          "messages": [ {"role": "user", "content": "..."} , ... ],
+          "temperature": 0.3,   # optional
+          "max_tokens": 768     # optional
+        }
+
+    Returns:
+        { "reply": "...", "model": "<hf chat model id>" }
+
+    503 is returned with a human-readable message if HF_TOKEN is missing
+    or the inference API is unreachable.
+    """
+    msgs = [{"role": m.role, "content": m.content} for m in req.messages if m.content.strip()]
+    if not msgs:
+        raise HTTPException(status_code=400, detail="messages is empty.")
+    if msgs[-1]["role"] != "user":
+        raise HTTPException(status_code=400, detail="Last message must be from the user.")
+
+    try:
+        reply = llm_chat(
+            messages=msgs,
+            system=_DOCTOR_SYSTEM_PROMPT_EN,
+            temperature=float(req.temperature or 0.3),
+            max_tokens=int(req.max_tokens or 768),
+        )
+    except LLMProviderError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    return {"reply": reply, "model": llm_health()["chat_model"]}
+
+
+@app.get("/llm_status")
+def llm_status():
+    """Lightweight diagnostic: is HF_TOKEN configured? Which models?
+
+    Does NOT call Hugging Face. Safe to poll from the UI to decide
+    whether to surface a 'configure your key' banner.
+    """
+    return llm_health()
 
 
 @app.get("/medications/{disease}")

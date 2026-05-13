@@ -30,3 +30,7 @@ torchaudio
 
 scikit-learn
 pydantic
+
+
+httpx
+python-dotenv

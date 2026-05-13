@@ -127,7 +127,44 @@ const dict = {
   ranking_signals:         { en: 'Ranking signals used',                     ar: 'إشارات الترتيب المستخدمة' },
   full_catalog:            { en: 'Full curated catalogue',                   ar: 'الكتالوج الكامل' },
   show_full_catalog:       { en: 'Show full catalogue',                      ar: 'إظهار الكتالوج الكامل' },
-  hide_full_catalog:       { en: 'Hide full catalogue',                      ar: 'إخفاء الكتالوج الكامل' }
+  hide_full_catalog:       { en: 'Hide full catalogue',                      ar: 'إخفاء الكتالوج الكامل' },
+
+  // Top-level tab navigation
+  tab_triage:              { en: 'Triage',                                   ar: 'الفحص' },
+  tab_chat:                { en: 'Doctor Assistant',                         ar: 'مساعد الطبيب' },
+
+  // Doctor chat
+  chat_title:              { en: 'Doctor Assistant',                         ar: 'مساعد الطبيب' },
+  chat_subtitle:           { en: 'Ask about symptoms, differentials, and medication recommendations. Bilingual.',
+                              ar: 'اسأل عن الأعراض والتشخيصات التفريقية واقتراحات الأدوية. ثنائي اللغة.' },
+  chat_empty_title:        { en: 'Start a clinical conversation',            ar: 'ابدأ محادثة سريرية' },
+  chat_empty_desc:         { en: 'Try one of the prompts below or type your own question.',
+                              ar: 'جرّب أحد الأمثلة أدناه أو اكتب سؤالك الخاص.' },
+  chat_placeholder:        { en: 'Describe symptoms, ask about a medication, request a differential…',
+                              ar: 'صف الأعراض، اسأل عن دواء، اطلب تشخيصاً تفريقياً…' },
+  chat_send:               { en: 'Send',                                     ar: 'إرسال' },
+  chat_thinking:           { en: 'Thinking…',                                ar: 'يفكر…' },
+  chat_clear:              { en: 'Clear chat',                               ar: 'مسح المحادثة' },
+  chat_you:                { en: 'You',                                      ar: 'أنت' },
+  chat_assistant:          { en: 'Assistant',                                ar: 'المساعد' },
+  chat_disclaimer:         { en: 'Decision support only — verify against current guidelines and exercise clinical judgement.',
+                              ar: 'أداة دعم قرار — راجع الإرشادات السريرية الحالية واستخدم حكمك الطبي.' },
+  chat_send_hint:          { en: 'Enter to send · Shift+Enter for new line', ar: 'Enter للإرسال · Shift+Enter لسطر جديد' },
+  chat_error_503:          { en: 'AI provider not reachable. Verify HF_TOKEN in .env and that the model is available.',
+                              ar: 'تعذّر الوصول إلى مزود الذكاء الاصطناعي. تحقّق من HF_TOKEN في ملف ‎.env وأن النموذج متاح.' },
+  chat_error_generic:      { en: 'Something went wrong while contacting the assistant.',
+                              ar: 'حدث خطأ أثناء التواصل مع المساعد.' },
+  chat_example_1:          { en: 'First-line antibiotic for community-acquired pneumonia in a 65 y/o, no allergies?',
+                              ar: 'ما الخيار الأول من المضادات الحيوية للالتهاب الرئوي المكتسب من المجتمع في مريض ٦٥ سنة بدون حساسية؟' },
+  chat_example_2:          { en: 'Differential for productive cough + low-grade fever + weight loss over 3 weeks.',
+                              ar: 'التشخيص التفريقي لسعال منتج مع حرارة خفيفة وفقدان وزن خلال ٣ أسابيع.' },
+  chat_example_3:          { en: 'Safe analgesic in a patient with CKD stage 3 and hypertension?',
+                              ar: 'ما المسكن الآمن لمريض يعاني من قصور كلوي مزمن (مرحلة ٣) وارتفاع ضغط الدم؟' },
+
+  // Settings / key banner
+  no_key_title:            { en: 'AI provider not configured',               ar: 'لم يتم إعداد مزود الذكاء الاصطناعي' },
+  no_key_desc:             { en: 'Add your free Hugging Face token to .env (HF_TOKEN=hf_…) and restart the server to enable Arabic translation and the doctor chat.',
+                              ar: 'أضف رمز Hugging Face المجاني إلى ملف ‎.env (HF_TOKEN=hf_…) ثم أعد تشغيل الخادم لتفعيل الترجمة والمساعد الطبي.' }
 }
 
 export function t(key) {
