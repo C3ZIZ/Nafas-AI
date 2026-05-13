@@ -1,50 +1,56 @@
 <template>
-  <div class="min-h-screen text-slate-900" :class="isRTL && 'ar'">
-    <header class="sticky top-0 z-30 backdrop-blur-xl bg-white/70 border-b border-slate-200/70">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+  <div class="min-h-screen text-ink bg-surface-alt" :class="isRTL && 'ar'">
+    <!-- Header -->
+    <header class="sticky top-0 z-30 bg-surface-alt/85 backdrop-blur-md border-b border-line">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+        <!-- Brand -->
         <div class="flex items-center gap-3 min-w-0">
-          <div class="h-9 w-9 rounded-xl bg-gradient-to-tr from-accent-700 to-teal grid place-items-center shadow-glow shrink-0">
-            <svg viewBox="0 0 24 24" class="h-5 w-5 text-white" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="M12 3v3m0 12v3m9-9h-3M6 12H3m13.5-6.5l-2 2m-9 9l-2 2m13 0l-2-2m-9-9l-2-2"/>
-              <circle cx="12" cy="12" r="3.2"/>
-            </svg>
+          <div class="h-9 w-9 rounded-xl bg-brand-600 grid place-items-center shrink-0">
+            <Stethoscope class="h-5 w-5 text-white" :stroke-width="1.75" />
           </div>
-          <div class="min-w-0">
-            <div class="flex items-baseline gap-2">
-              <h1 class="text-lg sm:text-xl font-semibold tracking-tight truncate">{{ t('app_title') }}</h1>
-              <span class="text-xs text-slate-500 hidden sm:inline">{{ t('app_subtitle') }}</span>
-            </div>
-            <div class="text-[11px] text-slate-500 sm:hidden">{{ t('app_subtitle') }}</div>
+          <div class="min-w-0 leading-tight">
+            <h1 class="text-base sm:text-lg font-semibold tracking-tight truncate">{{ t('app_title') }}</h1>
+            <p class="text-2xs sm:text-xs text-ink-muted truncate">{{ t('app_subtitle') }}</p>
           </div>
         </div>
 
+        <!-- Right cluster -->
         <div class="flex items-center gap-2">
+          <span class="hidden md:inline-flex pill pill-success">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+            {{ t('api_live') }}
+          </span>
+
           <!-- Locale toggle -->
-          <div class="flex bg-slate-100 rounded-full p-1 text-xs font-semibold">
+          <div class="seg !p-0.5">
             <button
               v-for="(meta, key) in LOCALES"
               :key="key"
               @click="setLocale(key)"
-              :class="locale === key ? 'bg-white text-slate-900 shadow-soft' : 'text-slate-500 hover:text-slate-700'"
-              class="px-3 py-1 rounded-full transition-all">
+              :class="['seg-btn !min-h-0 !py-1.5 !px-2.5 !text-xs', locale === key && 'seg-btn-active']"
+              :aria-label="meta.label"
+              :aria-pressed="locale === key">
               {{ meta.flag }}
             </button>
           </div>
-          <span class="hidden sm:inline-flex pill bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-            {{ t('api_live') }}
-          </span>
         </div>
       </div>
     </header>
 
+    <!-- Main -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <Dashboard />
     </main>
 
-    <footer class="max-w-7xl mx-auto px-4 sm:px-6 py-6 text-center text-xs text-slate-500">
-      {{ t('footer') }}
+    <!-- Footer -->
+    <footer class="max-w-7xl mx-auto px-4 sm:px-6 py-8 mt-4">
+      <div class="border-t border-line pt-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-2xs text-ink-subtle">
+        <p>{{ t('footer') }}</p>
+        <span class="md:hidden pill pill-success">
+          <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+          {{ t('api_live') }}
+        </span>
+      </div>
     </footer>
   </div>
 </template>
@@ -52,4 +58,5 @@
 <script setup>
 import Dashboard from './components/Dashboard.vue'
 import { LOCALES, locale, setLocale, isRTL, t } from './i18n.js'
+import { Stethoscope } from 'lucide-vue-next'
 </script>
