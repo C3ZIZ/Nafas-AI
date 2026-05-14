@@ -20,6 +20,7 @@ from . import clinical_model as _clinical_module
 from . import nlp_model as _nlp_module
 from .text_normalizer import to_clinical_english, contains_arabic
 from .llm_provider import chat as llm_chat, health as llm_health, LLMProviderError
+from . import meta_fusion as _meta_fusion
 
 from .utils import (
     get_audio_info,
@@ -33,6 +34,16 @@ from .model import nafas_model, device
 from .medications import get_medications, get_all_sources
 from .medication_advisor import recommend as advisor_recommend
 from .auto_train import ensure_models_trained
+
+# ---------------------------------------------------------------------------
+# Multi-modal fusion is delegated to a TRAINED stacking meta-classifier
+# (see app/meta_fusion.py and train_meta_fusion.py). The meta-model
+# takes the three brains' 8-dim probability vectors as 24 features and
+# outputs the fused 8-dim distribution. Per-brain reliability, per-class
+# bias correction, and cross-brain interactions are LEARNED from
+# patient-grouped data — not hard-coded.
+# ---------------------------------------------------------------------------
+
 
 # Reverse mapping to get string names for the 8 diseases
 REVERSE_DISEASE_MAP = {
@@ -325,8 +336,17 @@ def multi_modal_diagnosis(filename: str, vitals: PatientVitals):
                               vitals.spo2, vitals.temperature, vitals.smoker]])
     clinical_probs = _clinical_module.rf_model.predict_proba(vitals_array)[0]
 
-    # --- THE FUSION CENTER (Soft Voting) ---
-    fused_probs = (audio_probs * 0.6) + (clinical_probs * 0.4)
+    # --- FUSION (learned stacking) ---
+    # This endpoint takes only two modalities (audio + vitals), but the
+    # meta-classifier was trained on three. Pass a uniform NLP vector
+    # so the meta-model gets an uninformative prior for that feature —
+    # principled "missing modality" handling without any hand-tuned
+    # rebalancing of the remaining brains.
+    uniform_nlp = np.full(8, 1.0 / 8)
+    try:
+        fused_probs, _ = _meta_fusion.fuse(audio_probs, clinical_probs, uniform_nlp)
+    except _meta_fusion.MetaFusionUnavailableError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     top_class_idx = int(np.argmax(fused_probs))
     top_prob = fused_probs[top_class_idx] * 100
 
@@ -393,11 +413,17 @@ def diagnose_trinity(filename: str, patient: PatientProfile, debug: bool = False
         raise HTTPException(status_code=503, detail=str(e))
     nlp_probs = _nlp_module.nlp_model.predict_proba([nlp_text])[0]
 
-    # --- THE FUSION CENTER (Soft Voting) ---
-    # We assign weights based on clinical importance
-    # Audio: 40% | Vitals: 30% | NLP (Text): 30%
-    fused_probs = (audio_probs * 0.40) + (vitals_probs * 0.30) + (nlp_probs * 0.30)
-    
+    # --- THE FUSION CENTER ---
+    # Learned stacking classifier (LogisticRegression trained on
+    # patient-grouped triplets — see train_meta_fusion.py). If the
+    # meta-classifier hasn't been trained yet, surface a 503 so the
+    # user knows to run training; we do NOT fall back to heuristic
+    # weights.
+    try:
+        fused_probs, fusion_info = _meta_fusion.fuse(audio_probs, vitals_probs, nlp_probs)
+    except _meta_fusion.MetaFusionUnavailableError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
     top_class_idx = int(np.argmax(fused_probs))
     final_disease = REVERSE_DISEASE_MAP[top_class_idx]
     confidence = fused_probs[top_class_idx] * 100
@@ -451,7 +477,7 @@ def diagnose_trinity(filename: str, patient: PatientProfile, debug: bool = False
         response["debug"] = {
             "audio": {
                 "n_segments": int(n_segments),
-                "mean_probs": {REVERSE_DISEASE_MAP[i]: round(float(p) * 100, 2) for i, p in enumerate(audio_probs)},
+                "probs": {REVERSE_DISEASE_MAP[i]: round(float(p) * 100, 2) for i, p in enumerate(audio_probs)},
                 "per_segment_top_class": [
                     REVERSE_DISEASE_MAP[int(np.argmax(p))] for p in per_seg_probs
                 ],
@@ -465,8 +491,10 @@ def diagnose_trinity(filename: str, patient: PatientProfile, debug: bool = False
                 "normalized_text": nlp_text,
                 "was_translated": nlp_text != patient.patient_notes,
             },
-            "fusion_weights": {"audio": 0.40, "vitals": 0.30, "nlp": 0.30},
-            "fused_probs": all_confidences,
+            "fusion": {
+                **fusion_info,
+                "fused_probs": all_confidences,
+            },
         }
 
     return response
@@ -589,6 +617,16 @@ def llm_status():
     whether to surface a 'configure your key' banner.
     """
     return llm_health()
+
+
+@app.get("/meta_fusion_status")
+def meta_fusion_status():
+    """Is the trained stacking fusion classifier loaded and ready?
+
+    Returns the persisted training metadata (CV macro-F1, row counts,
+    estimator, etc.) when available. Safe to poll from the UI.
+    """
+    return _meta_fusion.info()
 
 
 @app.get("/medications/{disease}")

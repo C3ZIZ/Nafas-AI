@@ -23,6 +23,7 @@ NAFAS_W = ROOT / "nafas_weights.pth"
 NLP_W = ROOT / "nlp_weights.pkl"
 CLINICAL_W = ROOT / "clinical_weights.pkl"
 ADVISOR_W = ROOT / "advisor_weights.pkl"
+META_FUSION_W = ROOT / "meta_fusion_weights.pkl"
 
 
 def _train_clinical_if_missing() -> str:
@@ -132,12 +133,48 @@ def _build_advisor_if_missing() -> str:
         return f"advisor: skipped ({e})"
 
 
+def _train_meta_fusion_if_missing() -> str:
+    """Train the stacking meta-classifier that fuses audio + vitals + NLP.
+
+    Must run AFTER the three base models exist (clinical / nlp / audio).
+    Skips quickly if any base is missing — the user can re-run ensure on
+    next boot once the base models are trained.
+    """
+    if META_FUSION_W.exists():
+        from .meta_fusion import reload_meta_fusion
+        reload_meta_fusion()
+        return "meta_fusion: already trained"
+    # Require all three base models to be ready.
+    if not (CLINICAL_W.exists() and NLP_W.exists() and NAFAS_W.exists()):
+        return "meta_fusion: skipped (waiting on base models)"
+    try:
+        import train_meta_fusion  # script at project root
+        cwd = os.getcwd()
+        os.chdir(ROOT)
+        try:
+            X, y, groups = train_meta_fusion.build_dataset(verbose=False)
+            cv = train_meta_fusion.cross_validate(X, y, groups, verbose=False)
+            info = train_meta_fusion.train_and_save(X, y, groups, cv)
+        finally:
+            os.chdir(cwd)
+        from .meta_fusion import reload_meta_fusion
+        reload_meta_fusion()
+        return (
+            f"meta_fusion: trained (rows={info['n_train_rows']}, "
+            f"patients={info['n_patients']}, "
+            f"cv_macro_f1={info.get('cv_macro_f1')})"
+        )
+    except Exception as e:
+        return f"meta_fusion: skipped ({e})"
+
+
 def ensure_models_trained() -> dict[str, str]:
     """Train any missing model. Safe to call repeatedly — it no-ops once weights exist.
 
-    Four components are managed:
-        clinical Random Forest, NLP TF-IDF/NB, Audio CNN, and the
-        Medication Advisor TF-IDF index.
+    Five components are managed, trained in dependency order:
+        clinical Random Forest, NLP TF-IDF/NB, Audio CNN, the
+        Medication Advisor TF-IDF index, and the Meta-Fusion stacking
+        classifier (depends on the three diagnostic base models).
 
     Returns a dict of per-model status strings for logging.
     """
@@ -146,6 +183,7 @@ def ensure_models_trained() -> dict[str, str]:
         "nlp": _train_nlp_if_missing(),
         "audio": _train_audio_if_missing(),
         "advisor": _build_advisor_if_missing(),
+        "meta_fusion": _train_meta_fusion_if_missing(),
     }
     for k, v in status.items():
         print(f"[auto-train] {v}")
