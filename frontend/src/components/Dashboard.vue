@@ -46,10 +46,7 @@
             </div>
             <div>
               <label class="field-label">{{ t('sex') }}</label>
-              <select v-model.number="profile.sex" class="field-input">
-                <option :value="1">{{ t('male') }}</option>
-                <option :value="0">{{ t('female') }}</option>
-              </select>
+              <UiSelect v-model="profile.sex" :options="sexOptions" />
             </div>
           </div>
 
@@ -71,10 +68,7 @@
             </div>
             <div>
               <label class="field-label">{{ t('smoker') }}</label>
-              <select v-model.number="profile.smoker" class="field-input">
-                <option :value="0">{{ t('no') }}</option>
-                <option :value="1">{{ t('yes') }}</option>
-              </select>
+              <UiSelect v-model="profile.smoker" :options="smokerOptions" />
             </div>
           </div>
 
@@ -118,13 +112,15 @@
         <!-- Sample -->
         <div v-if="tab === 'sample'" class="space-y-3">
           <label class="field-label">{{ t('choose_sample') }}</label>
-          <select v-model="selectedSample" class="field-input">
-            <option disabled value="">{{ t('select_placeholder') }}</option>
-            <option v-for="s in sampleFiles" :key="s.filename" :value="s.filename">
-              {{ s.label }} · {{ s.filename }}
-            </option>
-          </select>
-          <p class="text-2xs text-ink-subtle">{{ t('samples_hint') }}</p>
+          <UiSelect
+            v-model="selectedSample"
+            :options="sampleOptions"
+            :placeholder="t('select_placeholder')"
+            :show-subtitle="true" />
+          <p class="text-2xs text-ink-subtle flex items-center gap-1.5">
+            <Info class="h-3 w-3 shrink-0" :stroke-width="2" />
+            {{ t('samples_hint') }}
+          </p>
           <div v-if="selectedSample" class="pt-1">
             <audio v-if="serverAudioUrl" :src="serverAudioUrl" controls></audio>
           </div>
@@ -597,6 +593,7 @@
 import { ref, computed, reactive } from 'vue'
 import axios from 'axios'
 import { t, locale, isRTL } from '../i18n.js'
+import UiSelect from './UiSelect.vue'
 import {
   Stethoscope, AudioLines, Activity, BadgeCheck, Mic, Upload, UploadCloud,
   FileAudio, Pill, ShieldCheck, AlertTriangle, ClipboardList, Target,
@@ -619,15 +616,36 @@ const profile = ref({
 })
 
 const tab = ref('sample')
-const sampleFiles = ref([
-  { label: 'Healthy', filename: '102_1b1_Ar_sc_Meditron.wav' },
-  { label: 'COPD', filename: '104_1b1_Al_sc_Litt3200.wav' },
-  { label: 'Asthma', filename: '103_2b2_Ar_mc_LittC2SE.wav' },
-  { label: 'Bronchiectasis', filename: '111_1b2_Tc_sc_Meditron.wav' },
-  { label: 'Pneumonia', filename: '122_2b1_Al_mc_LittC2SE.wav' },
-  { label: 'URTI', filename: '101_1b1_Al_sc_Meditron.wav' },
-  { label: 'LRTI', filename: '108_1b1_Al_sc_Meditron.wav' },
-  { label: 'Bronchiolitis', filename: '149_1b1_Al_sc_Meditron.wav' }
+
+// Disease-keyed sample registry. Disease labels and clinical hints are
+// resolved bilingually via i18n; the filename is an internal detail and
+// is not surfaced in the UI.
+const SAMPLE_REGISTRY = [
+  { key: 'healthy',        filename: '102_1b1_Ar_sc_Meditron.wav' },
+  { key: 'copd',           filename: '104_1b1_Al_sc_Litt3200.wav' },
+  { key: 'asthma',         filename: '103_2b2_Ar_mc_LittC2SE.wav' },
+  { key: 'bronchiectasis', filename: '111_1b2_Tc_sc_Meditron.wav' },
+  { key: 'pneumonia',      filename: '122_2b1_Al_mc_LittC2SE.wav' },
+  { key: 'urti',           filename: '101_1b1_Al_sc_Meditron.wav' },
+  { key: 'lrti',           filename: '108_1b1_Al_sc_Meditron.wav' },
+  { key: 'bronchiolitis',  filename: '149_1b1_Al_sc_Meditron.wav' }
+]
+const sampleOptions = computed(() =>
+  SAMPLE_REGISTRY.map(s => ({
+    value:    s.filename,
+    label:    t(`disease_${s.key}`),
+    subtitle: t(`hint_${s.key}`),
+    icon:     Volume2
+  }))
+)
+
+const sexOptions = computed(() => [
+  { value: 1, label: t('male')   },
+  { value: 0, label: t('female') }
+])
+const smokerOptions = computed(() => [
+  { value: 0, label: t('no')  },
+  { value: 1, label: t('yes') }
 ])
 
 const selectedSample = ref('')
